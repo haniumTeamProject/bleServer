@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>radius</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@100..800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+    <script defer src="app.js"></script>
+</head>
+<body>
+<div class="dashboard">
+    <header class="dash-header">
+        <h1>RSSI DASHBOARD</h1>
+        <span class="status" id="conn-status">&#9679; connecting</span>
+    </header>
+
+    <section class="content">
+        <aside class="device-panel">
+            <div class="panel-head">
+                <span>DEVICES</span>
+                <span class="device-count" id="device-count">0</span>
+            </div>
+            <ul class="device-list" id="device-list"></ul>
+        </aside>
+
+        <main class="chart-panel">
+            <div class="chart-head">
+                <div class="chart-title-row">
+                    <div class="chart-title-text">
+                        <div class="chart-title" id="chart-title">기기를 선택하세요</div>
+                        <div class="chart-sub" id="chart-sub">왼쪽 목록에서 기기를 클릭하세요.</div>
+                    </div>
+                    <div class="chart-actions">
+                        <label class="toggle">
+                            <input type="checkbox" id="smooth-toggle" checked>
+                            <span>스무딩 비교</span>
+                        </label>
+                        <button class="measure-btn" id="measure-btn" disabled>측정 시작</button>
+                    </div>
+                </div>
+                <div class="chart-controls">
+                    <div class="ctrl-group">
+                        <span class="ctrl-label">시간 범위</span>
+                        <input type="range" id="window-range" min="5" max="120" step="5" value="20">
+                        <span class="ctrl-value" id="window-value">20초</span>
+                    </div>
+                    <label class="toggle live-toggle">
+                        <input type="checkbox" id="follow-toggle" checked>
+                        <span>실시간 따라가기</span>
+                    </label>
+                    <button class="ghost-btn" id="reset-view">최신으로</button>
+                </div>
+            </div>
+            <div class="chart-wrap">
+                <canvas id="rssi-chart"></canvas>
+            </div>
+            <div class="chart-hint">드래그로 과거 구간을 볼 수 있어요 · 스크롤(휠)로 확대/축소</div>
+        </main>
+    </section>
+</div>
+</body>
+</html>
