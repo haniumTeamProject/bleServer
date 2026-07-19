@@ -24,7 +24,7 @@ public class Admin {
     private String email;
 
     // BCrypt로 해시된 값만 저장 (평문 저장 금지)
-    private String password;
+    private String passwordHash;
 
     private String name;
     private String org; // 소속 기관
@@ -39,6 +39,10 @@ public class Admin {
     private String role = "admin";
 
     private String officialDocUrl; // 기관 공문(직인) — 추후 파일 업로드 기능 붙을 때 채워짐
+
+    // 승인 감사 로그 — 승인/거절 처리한 슈퍼관리자의 id (승인 API 만들 때 채워짐)
+    private String approvedBy;
+    private LocalDateTime approvedAt;
 
     @CreationTimestamp
     private LocalDateTime createdAt;

@@ -53,6 +53,7 @@ public class SecurityConfig {
                 .headers(headers -> headers.frameOptions(frame -> frame.disable()))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/admin/auth/**").permitAll()
+                        .requestMatchers("/api/admin/accounts/**").hasRole("SUPER_ADMIN")
                         .requestMatchers("/h2-console/**").permitAll()
                         .requestMatchers("/ws", "/ws/**").permitAll()
                         .requestMatchers("/", "/*.html", "/*.js", "/*.css", "/favicon.ico").permitAll()
