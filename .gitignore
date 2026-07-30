@@ -5,3 +5,4 @@ __pycache__/
 *.db
 _ws_smoke_test.py
 _status_smoke_test.py
+_monitor_smoke_test.py
