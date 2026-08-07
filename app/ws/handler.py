@@ -1,9 +1,11 @@
 import json
 import time
+from pathlib import Path
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
+from app.ws.path_tracker import PathTracker
 from app.ws.rssi_filter import RssiFilterPipeline
 
 router = APIRouter()
@@ -14,6 +16,55 @@ router = APIRouter()
 # (예전에 얘기했던 "세션별로 필터 분리 안 됨" 이슈, 실사용 단계에선 손봐야 함)
 _connections: set[WebSocket] = set()
 _filters: dict[str, RssiFilterPipeline] = {}
+
+# 경로 진행 추적 — 비콘이 바뀌는 시점을 서버가 판단해서 폰에 음성 안내를 내려보내기 위한 것.
+# _filters와 마찬가지로 전역 하나라서 동시에 여러 명을 안내하지는 못함 (실측 도구 수준의 한계).
+_tracker = PathTracker()
+
+
+# 지도 편집 도구(map-tool/map_inspection.html)는 별도 저장소로 관리되는 단독 HTML이라,
+# 여기로 복사해오지 않고 파일을 그대로 읽어서 서빙한다. /monitor가 iframe으로 이걸 띄운다.
+# (같은 출처가 되어야 postMessage로 경로 정보를 주고받기 편하고, 브라우저가 파일을 직접
+#  열었을 때 생기는 제약도 피할 수 있음)
+_MAP_TOOL_DIR = Path(__file__).resolve().parents[2].parent / "map-tool"
+_MAP_TOOL_PATH = _MAP_TOOL_DIR / "map_inspection.html"
+_MAP_STATIC_DIR = _MAP_TOOL_DIR / "static"
+
+
+@router.get("/map-static/{filename}")
+async def map_static_file(filename: str):
+    """지도 도구가 쓰는 정적 파일(평면도 이미지, 프로젝트 JSON) 제공.
+
+    프로젝트 파일이 13MB가 넘어서 HTML에 끼워 넣지 않고 따로 받아가게 한다.
+    """
+    # 상위 경로 탈출(../) 방지 — 파일 이름만 받는다
+    safe = Path(filename).name
+    target = _MAP_STATIC_DIR / safe
+    if not target.is_file():
+        return JSONResponse({"error": f"파일을 찾을 수 없습니다: {safe}"}, status_code=404)
+    return FileResponse(target)
+
+
+@router.get("/map-static")
+async def map_static_list():
+    """자동 로드용 — static 폴더에 어떤 파일이 있는지 알려준다."""
+    if not _MAP_STATIC_DIR.is_dir():
+        return JSONResponse({"files": []})
+    return JSONResponse({"files": sorted(p.name for p in _MAP_STATIC_DIR.iterdir() if p.is_file())})
+
+
+@router.get("/map", response_class=HTMLResponse)
+async def map_tool_page() -> HTMLResponse:
+    try:
+        return HTMLResponse(_MAP_TOOL_PATH.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        # 경로가 어긋났을 때 빈 화면 대신 원인을 알려준다 (실측 현장에서 디버깅하기 쉽게)
+        return HTMLResponse(
+            "<h3>지도 도구 파일을 찾지 못했습니다</h3>"
+            f"<p>찾은 위치: <code>{_MAP_TOOL_PATH}</code></p>"
+            "<p>map-tool 폴더가 backend-python과 같은 상위 폴더 안에 있는지 확인해주세요.</p>",
+            status_code=404,
+        )
 
 
 @router.get("/monitor", response_class=HTMLResponse)
@@ -32,20 +83,30 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             raw = await websocket.receive_text()
-            payload = _process_message(raw)
+            payload, guides = _process_message(raw)
 
-            for conn in list(_connections):
-                if conn is websocket:
-                    continue
-                try:
-                    await conn.send_text(payload)
-                except Exception:
-                    pass  # 끊긴 연결에 보내다 실패하는 경우 무시하고 계속 진행
+            # 기존 동작 유지: RSSI/측정 메시지는 "보낸 쪽 제외" 브로드캐스트
+            await _broadcast(payload, exclude=websocket)
+
+            # 안내 메시지는 반대로 "보낸 쪽 포함" 전체에 보내야 함.
+            # RSSI를 보내는 폰이 곧 안내를 들어야 할 대상이라, 송신자를 빼면 정작 폰이 못 받음.
+            for guide in guides:
+                await _broadcast(json.dumps(guide, ensure_ascii=False))
     except WebSocketDisconnect:
         pass
     finally:
         _connections.discard(websocket)
         print(f"Disconnected: {id(websocket)}")
+
+
+async def _broadcast(payload: str, exclude: WebSocket | None = None) -> None:
+    for conn in list(_connections):
+        if exclude is not None and conn is exclude:
+            continue
+        try:
+            await conn.send_text(payload)
+        except Exception:
+            pass  # 끊긴 연결에 보내다 실패하는 경우 무시하고 계속 진행
 
 
 # 측정 제어 메시지 스펙
@@ -56,12 +117,15 @@ _MEASURE_TYPE = "measure"
 _MEASURE_EVENTS = ("start", "mark", "end")
 
 
-def _process_control(data: dict) -> str:
-    """측정 제어 메시지를 정규화해서 중계용 JSON으로 만든다.
+def _process_control(data: dict) -> tuple[str, list[dict]]:
+    """측정 제어 메시지를 정규화해서 (중계용 JSON, 안내 메시지 목록)으로 만든다.
 
     RSSI 경로와 완전히 분리되어 있어서 필터(_filters)를 건드리지 않는다.
     event 값이 스펙에 없으면 그대로 통과시키지 않고 오류로 표시해서, /monitor가
     모르는 이벤트를 측정 시작/종료로 착각하지 않게 한다.
+
+    측정 시작/종료는 경로 안내의 켜짐/꺼짐도 함께 제어한다 — 안내는 측정 구간
+    안에서만 나가야 하고, 시작 지점은 측정을 시작하는 순간 확정되어야 하므로.
     """
     event = data.get("event")
     if event not in _MEASURE_EVENTS:
@@ -69,7 +133,7 @@ def _process_control(data: dict) -> str:
         return json.dumps(
             {"type": _MEASURE_TYPE, "event": "error", "reason": f"unknown event: {event}"},
             ensure_ascii=False,
-        )
+        ), []
 
     payload = {
         "type": _MEASURE_TYPE,
@@ -89,22 +153,83 @@ def _process_control(data: dict) -> str:
     label_text = payload["label"] or "(이름 없음)"
     print(f"[측정 {event}] {label_text} | session={payload['sessionId']} | device={payload.get('device', '-')}")
 
-    return json.dumps(payload, ensure_ascii=False)
+    # 측정 시작 = 안내 켜기(+ 시작 지점 확정), 측정 종료 = 안내 끄기
+    guides: list[dict] = []
+    if event == "start":
+        started = _tracker.start_session()
+        if started:
+            print(f"[안내] 시작 지점 {started['number']}번 ({started['name']})")
+            guides.append(started)
+    elif event == "end":
+        ended = _tracker.end_session()
+        if ended:
+            print("[안내] 측정 종료 — 안내 중지")
+            guides.append(ended)
+
+    return json.dumps(payload, ensure_ascii=False), guides
 
 
-def _process_message(raw: str) -> str:
+# 경로 안내 메시지 스펙
+#   보내는 쪽 → 서버:
+#     { "type":"guide", "event":"setPath", "path":[키...], "threshold":3, "minNext":-85 }
+#     { "type":"guide", "event":"stop" }
+#   서버 → 전체(폰 포함):
+#     { "type":"guide", "event":"transition", "direction":"forward"|"backward",
+#       "index":int, "total":int, "beacon":str, "name":str, "isLast":bool,
+#       "speech":str, "timestamp":int }
+# speech는 폰이 그대로 읽어주는 문장 — 문구를 바꿔도 앱을 다시 빌드할 필요가 없게 서버가 만든다.
+_GUIDE_TYPE = "guide"
+
+
+def _process_guide(data: dict) -> str:
+    event = data.get("event")
+
+    if event == "setPath":
+        path = data.get("path")
+        if not isinstance(path, list):
+            path = []
+        result = _tracker.set_path(
+            [str(p) for p in path],
+            threshold=data.get("threshold"),
+            min_next=data.get("minNext"),
+        )
+        print(f"[안내] 경로 설정: {result.get('path')} (활성={result.get('enabled')})")
+        return json.dumps(result, ensure_ascii=False)
+
+    if event == "stop":
+        result = _tracker.stop()
+        print("[안내] 경로 안내 중지")
+        return json.dumps(result, ensure_ascii=False)
+
+    print(f"알 수 없는 안내 이벤트 무시: {event!r}")
+    return json.dumps(
+        {"type": _GUIDE_TYPE, "event": "error", "reason": f"unknown event: {event}"},
+        ensure_ascii=False,
+    )
+
+
+def _process_message(raw: str) -> tuple[str, list[dict]]:
+    """수신 메시지를 처리해서 (중계할 JSON 문자열, 전체에 보낼 안내 메시지 목록)을 돌려준다.
+
+    안내 메시지를 따로 돌려주는 이유: 일반 중계는 "보낸 쪽 제외"인데,
+    안내는 RSSI를 보낸 폰이 받아야 하므로 송신자를 포함해 보내야 한다.
+    """
     try:
         data: dict = json.loads(raw)
     except json.JSONDecodeError as e:
         print(f"필터 오류, 원본 전송: {e}")
-        return raw
+        return raw, []
 
     # RSSI 데이터가 아닌 제어 메시지는 필터 경로를 타지 않고 따로 처리
     if isinstance(data, dict) and data.get("type") == _MEASURE_TYPE:
         return _process_control(data)
 
+    if isinstance(data, dict) and data.get("type") == _GUIDE_TYPE:
+        return _process_guide(data), []
+
     try:
         filtered: dict = {"timestamp": data.get("timestamp", int(time.time() * 1000))}
+        got_rssi = False
 
         for key, value in data.items():
             if key == "timestamp":
@@ -123,12 +248,30 @@ def _process_message(raw: str) -> str:
             filtered[key] = rssi  # 원본값
             filtered[f"{key}__f"] = rounded  # 칼만 필터값
 
+            # 추적기에도 같은 필터값을 먹여서 서버가 직접 전진/후퇴를 판정하게 함
+            _tracker.feed(key, filtered_rssi)
+            got_rssi = True
+
             print(f"비콘 {key} | 원본: {rssi:.1f} | 필터: {rounded:.1f} | 상태: {pipeline.state.value}")
 
-        return json.dumps(filtered, ensure_ascii=False)
+        guides: list[dict] = []
+        if got_rssi:
+            transition = _tracker.evaluate()
+            if transition:
+                print(f"[안내] {transition['speech']}")
+                guides.append(transition)
+
+            # 판정 결과를 중계 payload에 실어 보냄. /monitor는 이걸 화면에 표시만 하고
+            # 자체 판정은 하지 않는다 — 판정 주체를 서버 하나로 유지하기 위함.
+            # (별도 메시지로 안 보내고 여기 얹는 이유: 메시지 수를 안 늘리면서 RSSI와 항상 같은 시점의 상태가 되도록)
+            snapshot = _tracker.snapshot()
+            if snapshot:
+                filtered["_track"] = snapshot
+
+        return json.dumps(filtered, ensure_ascii=False), guides
     except Exception as e:
         print(f"필터 오류, 원본 전송: {e}")
-        return raw
+        return raw, []
 
 
 _MONITOR_HTML = """<!DOCTYPE html>
@@ -150,6 +293,16 @@ _MONITOR_HTML = """<!DOCTYPE html>
     margin: 0; padding: 28px 16px 60px;
   }
   .container { max-width: 900px; margin: 0 auto; }
+  /* 지도 도구는 자체 사이드바+도구패널 때문에 1000px 이상 필요해서 따로 넓게 쓴다 */
+  .wide-container { max-width: 1700px; margin: 0 auto; }
+  #mapFrame {
+    display: block; width: 100%; min-width: 1040px;
+    height: 85vh; min-height: 720px;
+    border: 1px solid var(--border); border-radius: 10px; background: #fff;
+    resize: vertical; overflow: auto;   /* 모서리를 끌어 높이 조절 */
+  }
+  /* 창이 좁으면 지도 카드만 가로 스크롤되게 해서 레이아웃이 깨지지 않도록 */
+  .wide-container .card { overflow-x: auto; }
   .card {
     background: var(--card); border: 1px solid var(--border); border-radius: 12px;
     padding: 20px 22px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
@@ -262,11 +415,12 @@ _MONITOR_HTML = """<!DOCTYPE html>
       <button class="btn-plain" id="addNodeBtn">+ 경로 노드 추가</button>
       <label>추세 임계값(dB) <input id="threshInput" type="number" value="3"></label>
       <label>다음 비콘 최소 신호(dBm) <input id="minNextInput" type="number" value="-85"></label>
-      <button class="btn-primary" id="startBtn">추적 시작</button>
-      <button class="btn-plain" id="resetBtn">초기화</button>
+      <button class="btn-primary" id="startBtn">추적 시작 (폰 음성 안내 포함)</button>
+      <button class="btn-plain" id="resetBtn">추적 중지</button>
     </div>
-    <div id="trackStatus">경로 미설정</div>
+    <div id="trackStatus">경로 미설정 — 경로를 고르고 "추적 시작"을 누르세요</div>
     <div id="trackNumbers" class="chips"></div>
+    <div id="guideStatus" class="hint" style="margin-top:10px;">판정은 서버가 합니다. 시작하면 이 페이지를 닫아도 폰 음성 안내가 계속 동작합니다.</div>
   </div>
 
   <div class="card">
@@ -284,6 +438,24 @@ _MONITOR_HTML = """<!DOCTYPE html>
     </div>
   </div>
 
+</div>
+
+<!-- 지도 도구는 자체 사이드바(210px)+도구패널(220px)이 있어서 900px 안에서는 화면이 깨진다.
+     그래서 이 카드만 위쪽 컨테이너 밖으로 빼서 넓게 쓴다. -->
+<div class="wide-container">
+  <div class="card">
+    <h2>🗺️ 지도 · 경로 탐색</h2>
+    <div class="hint">
+      지도에서 경로를 탐색한 뒤 "이 순서를 모니터 경로로 보내기"를 누르면, 경로상 비콘의 BLE 이름을
+      위 비콘 목록과 대조해서 <b>거쳐가는 순서대로</b> 경로에 자동 등록합니다.
+      지도 비콘에 BLE 이름(예: ESP32-Beacon1)을 먼저 지정해두셔야 합니다.
+    </div>
+    <div id="mapMatchStatus" class="hint" style="margin-bottom:10px;">지도에서 경로를 탐색해주세요.</div>
+    <iframe id="mapFrame" src="/map" title="지도 경로 탐색"></iframe>
+    <div class="hint" style="margin:8px 0 0;">
+      지도 화면이 좁으면 아래 모서리를 끌어서 높이를 늘리거나, <a href="/map" target="_blank" style="color:var(--blue);">새 탭에서 열기</a>를 눌러 크게 볼 수 있습니다.
+    </div>
+  </div>
 </div>
 <script>
   const PALETTE = ['#2196F3', '#4CAF50', '#e74c3c', '#9b59b6', '#f39c12', '#1abc9c', '#e67e22', '#34495e'];
@@ -378,9 +550,8 @@ _MONITOR_HTML = """<!DOCTYPE html>
     Object.keys(historyByKey).forEach(k => { historyByKey[k].length = 0; });
     Object.keys(displayByKey).forEach(k => { displayByKey[k].length = 0; });
     Object.keys(rows).forEach(k => { delete rows[k]; });
-    // 추세 판정 상태도 같이 초기화 — 비운 직후엔 비교할 이력이 없으므로
-    backCounter = 0;
-    forwardCounter = 0;
+    // 서버 쪽 추세 이력은 여기서 못 비움 — 필요하면 "추적 시작"을 다시 눌러
+    // 서버의 PathTracker를 초기화해야 함 (판정 상태는 서버가 들고 있으므로)
     renderTable();
     syncLiveChart();
   };
@@ -396,16 +567,10 @@ _MONITOR_HTML = """<!DOCTYPE html>
     Object.keys(colorByKey).forEach(k => { delete colorByKey[k]; });
     knownKeys = [];
 
-    tracking = false;
-    pathKeys = [];
+    // 지워진 비콘을 서버가 계속 추적하지 않도록 서버 쪽 추적도 중지시킨다
     pathSlots = ['', ''];
-    currentIndex = 0;
-    backCounter = 0;
-    forwardCounter = 0;
-    const statusDiv = document.getElementById('trackStatus');
-    statusDiv.textContent = '경로 미설정';
-    statusDiv.className = '';
-    document.getElementById('trackNumbers').innerHTML = '';
+    ws.send(JSON.stringify({ type: 'guide', event: 'stop' }));
+    renderTrackState(null);
 
     renderPicker(); renderTable(); renderPathBuilder(); syncLiveChart();
   };
@@ -559,6 +724,8 @@ _MONITOR_HTML = """<!DOCTYPE html>
 
     // 안드로이드 앱이 보낸 측정 제어 메시지 (RSSI 데이터가 아님)
     if (data && data.type === 'measure') { handleMeasureControl(data); return; }
+    // 서버가 판단한 경로 안내 메시지
+    if (data && data.type === 'guide') { handleGuideMessage(data); return; }
 
     const now = new Date().toLocaleTimeString('ko-KR');
     let pickerDirty = false;
@@ -591,10 +758,12 @@ _MONITOR_HTML = """<!DOCTYPE html>
       }
     }
 
-    if (pickerDirty) { renderPicker(); renderPathBuilder(); }
+    if (pickerDirty) { renderPicker(); renderPathBuilder(); pushBeaconListToMap(); }
     renderTable();
     syncLiveChart();
-    if (tracking) updateTracking();
+    // 서버가 실어 보낸 판정 결과를 그대로 표시 (판정은 서버에서만 함)
+    renderTrackState(data._track);
+    pushCurrentBeaconToMap(data._track);   // 지도에도 현재 위치 표시
   };
 
   // 폰에서 보낸 측정 제어 메시지 처리.
@@ -673,143 +842,214 @@ _MONITOR_HTML = """<!DOCTYPE html>
   document.getElementById('addNodeBtn').onclick = () => { pathSlots.push(''); renderPathBuilder(); };
   renderPathBuilder();
 
-  // ---- 경로 진행 추적 ----
-  // 전제: 경로탐색 알고리즘이 [b0, b1, ..., bn] 순서를 이미 확정해줌.
-  // currentIndex = 지금 사용자가 있다고 판단하는 경로상 위치. prev/current/next는 이 순서에서 -1/0/+1.
-  let pathKeys = [];
-  let currentIndex = 0;
-  let backCounter = 0;    // "이전 노드로 되돌아가는 중" 의심이 연속으로 몇 번 나왔는지
-  let forwardCounter = 0; // "다음 노드로 전진하는 중" 의심이 연속으로 몇 번 나왔는지
-  let tracking = false;
+  // ---- 지도 도구 연동 ----
+  // 지도(iframe)에서 경로를 탐색하면 경로상 비콘의 BLE 이름을 순서대로 보내온다.
+  // 그 이름을 지금 실제로 잡히고 있는 비콘 키("MAC|이름")와 대조해서 경로 슬롯을 채운다.
+  const mapMatchStatus = document.getElementById('mapMatchStatus');
 
-  document.getElementById('startBtn').onclick = () => {
-    pathKeys = pathSlots.filter(k => k);
-    if (pathKeys.length < 2) { alert('경로 노드를 2개 이상 선택해주세요 (현재 + 다음)'); return; }
+  // 이름에서 "Beacon" 뒤에 오는 번호를 뽑는다. ESP32-Beacon3-tx -> 3
+  // "Beacon" 뒤라는 조건이 중요함: 그냥 첫 숫자를 쓰면 "ESP32"의 32가 잡힘.
+  function beaconNumberFromName(name) {
+    if (!name) return null;
+    const m = String(name).match(/beacon[^0-9]*(\d+)/i);
+    return m ? parseInt(m[1], 10) : null;
+  }
 
-    // 경로상 비콘들 중 지금 신호가 가장 센(필터값이 0에 가장 가까운) 걸 시작 노드로
-    let bestIdx = 0, bestVal = -Infinity;
-    pathKeys.forEach((key, idx) => {
-      const latest = latestOf(key);
-      if (latest !== null && latest > bestVal) { bestVal = latest; bestIdx = idx; }
+  // 지도의 BLE 이름 하나에 대응하는 실제 비콘 키를 찾는다 (키는 "MAC|이름" 형태).
+  // 1) 이름이 정확히 같은 것
+  // 2) 없으면 Beacon 뒤 번호가 같은 것 — 실제 이름이 ESP32-Beacon3-tx처럼
+  //    뒤에 접미사가 붙는 경우가 있어서 번호로 맞춘다.
+  // 단순 포함(includes) 비교는 쓰지 않는다. ESP32-Beacon1이 ESP32-Beacon12-tx에
+  // 잘못 걸리기 때문.
+  function findKeyByBleName(bleName) {
+    const target = String(bleName || '').trim().toLowerCase();
+    if (!target) return null;
+
+    const exact = knownKeys.find(k => shortName(k).toLowerCase() === target);
+    if (exact) return exact;
+
+    const num = beaconNumberFromName(target);
+    if (num !== null) {
+      const byNum = knownKeys.find(k => beaconNumberFromName(shortName(k)) === num);
+      if (byNum) return byNum;
+    }
+    return null;
+  }
+
+  function applyMapSequence(seq) {
+    const matched = [];
+    const missing = [];
+
+    seq.forEach(item => {
+      const key = findKeyByBleName(item.bleName);
+      if (key) matched.push({ ...item, key });
+      else missing.push(item);
     });
-    currentIndex = bestIdx;
-    backCounter = 0;
-    forwardCounter = 0;
-    tracking = true;
-    updateTracking();
+
+    if (matched.length < 2) {
+      mapMatchStatus.innerHTML =
+        `<span style="color:#c0392b;">경로에 등록할 비콘이 부족합니다 — 일치 ${matched.length}개.</span> ` +
+        (missing.length ? `못 찾은 이름: ${missing.map(m => m.bleName).join(', ')}` : '') +
+        ' (지금 잡히고 있는 비콘의 이름과 지도에 적은 이름이 같아야 합니다)';
+      return;
+    }
+
+    // 매칭된 것만 지도상의 통과 순서 그대로 경로 슬롯에 채운다.
+    // 이 차례가 곧 안내 번호(1, 2, 3...)가 된다.
+    pathSlots = matched.map(m => m.key);
+    renderPathBuilder();
+
+    const chain = matched.map((m, i) => `<b>${i + 1}번</b> ${shortName(m.key)}`).join(' → ');
+    mapMatchStatus.innerHTML =
+      `<span style="color:#1e8e4a;">경로 자동 반영됨 (${matched.length}개):</span> ${chain}`
+      + (missing.length
+          ? `<br><span style="color:#b9770e;">못 찾아서 뺀 비콘: ${missing.map(m => m.bleName).join(', ')}</span>`
+          : '')
+      + '<br>위의 "추적 시작"을 누르면 이 순서로 안내가 시작됩니다.';
+  }
+
+  window.addEventListener('message', (e) => {
+    const msg = e.data;
+    if (!msg || msg.source !== 'mapTool') return;
+    if (msg.event === 'beaconSequence' && Array.isArray(msg.beacons)) {
+      applyMapSequence(msg.beacons);
+    }
+  });
+
+  // 지도 쪽에서 이름을 직접 타이핑하면 오타가 나도 매칭 실패로만 나타나 원인을 찾기 어렵다.
+  // 지금 잡히고 있는 비콘 이름을 지도에 계속 알려줘서 목록에서 고를 수 있게 한다.
+  const mapFrame = document.getElementById('mapFrame');
+  let sentBeaconSig = '';
+
+  function pushBeaconListToMap() {
+    if (!mapFrame || !mapFrame.contentWindow) return;
+    const names = knownKeys.map(shortName);
+    const sig = names.join('|');
+    if (sig === sentBeaconSig) return;   // 바뀐 게 없으면 보내지 않음
+    sentBeaconSig = sig;
+    mapFrame.contentWindow.postMessage({ source: 'monitor', event: 'beaconList', names }, '*');
+  }
+
+  // iframe이 늦게 뜨므로 로드 시점에 한 번, 이후에는 비콘이 새로 잡힐 때마다 보냄
+  if (mapFrame) mapFrame.addEventListener('load', () => {
+    sentBeaconSig = '';
+    sentCurrentBeacon = null;
+    pushBeaconListToMap();
+  });
+
+  // 서버가 판단한 현재 위치를 지도에 표시. 바뀔 때만 보내서 불필요한 다시 그리기를 줄인다.
+  let sentCurrentBeacon = null;
+
+  function pushCurrentBeaconToMap(track) {
+    if (!mapFrame || !mapFrame.contentWindow) return;
+
+    // 측정 중이 아니어도(추적 경로만 등록된 상태) 서버가 보는 현재 노드를 지도에 보여준다.
+    // 측정 중일 때만 보내면 "추적 시작만 누른" 상태에서 아무 표시도 안 떠서 고장처럼 보임.
+    // 대신 active 여부를 같이 보내서 지도가 "대기 중"으로 구분해 표시하게 한다.
+    const name = (track && track.enabled && track.current) ? shortName(track.current) : null;
+    const active = !!(track && track.active);
+    const sig = name === null ? '' : `${name}#${track.number}#${active}`;
+    if (sig === sentCurrentBeacon) return;
+    sentCurrentBeacon = sig;
+    mapFrame.contentWindow.postMessage({
+      source: 'monitor', event: 'currentBeacon',
+      name, number: (track && track.number) || null, active,
+    }, '*');
+  }
+
+  // ---- 서버 음성 안내 제어 ----
+  // 판정을 서버가 하게 경로를 넘겨준다. 이렇게 해야 이 페이지를 닫아도 폰 안내가 계속 동작함.
+  const guideStatus = document.getElementById('guideStatus');
+
+  // 추적 시작/중지는 곧 "서버에 경로를 등록/해제"하는 것. 화면에는 별도 추적 상태가 없다.
+  document.getElementById('startBtn').onclick = () => {
+    const path = pathSlots.filter(k => k);
+    if (path.length < 2) { alert('경로 노드를 2개 이상 선택해주세요 (현재 + 다음)'); return; }
+    ws.send(JSON.stringify({
+      type: 'guide',
+      event: 'setPath',
+      path,
+      threshold: parseFloat(document.getElementById('threshInput').value) || 3,
+      minNext: parseFloat(document.getElementById('minNextInput').value) || -85,
+    }));
   };
 
   document.getElementById('resetBtn').onclick = () => {
-    tracking = false;
-    currentIndex = 0;
-    backCounter = 0;
-    forwardCounter = 0;
-    const statusDiv = document.getElementById('trackStatus');
-    statusDiv.textContent = '경로 미설정';
-    statusDiv.className = '';
-    document.getElementById('trackNumbers').innerHTML = '';
+    ws.send(JSON.stringify({ type: 'guide', event: 'stop' }));
   };
 
-  // 추세 = 최근 N개 평균 - 가장 오래된 N개 평균. 양수=신호가 강해짐(접근중), 음수=약해짐(멀어짐)
-  // N=2였을 때 실측 중 가만히 서 있어도 순간 RSSI 노이즈로 추세가 6dB 넘게 튀는 경우가 있어서 4로 늘림
-  const TREND_WINDOW = 4;
-  function trendOf(key) {
-    const hist = historyByKey[key];
-    if (!hist || hist.length < TREND_WINDOW * 2) return null;
-    const n = hist.length;
-    let recentSum = 0, oldSum = 0;
-    for (let i = 0; i < TREND_WINDOW; i++) {
-      recentSum += hist[n - 1 - i].filtered;
-      oldSum += hist[i].filtered;
+  // 서버가 보내주는 안내 관련 응답 처리 (setPath 확인, 실제 전환 안내 등)
+  function handleGuideMessage(msg) {
+    if (msg.event === 'pathSet') {
+      guideStatus.textContent = msg.enabled
+        ? `경로 등록됨 — ${msg.path.map((k, i) => `${i + 1}.${shortName(k)}`).join(' → ')} · 측정을 시작하면 안내가 나갑니다`
+        : '경로 노드가 부족해서 등록하지 못했습니다 (2개 이상 필요)';
+      return;
     }
-    return (recentSum / TREND_WINDOW) - (oldSum / TREND_WINDOW);
+    if (msg.event === 'stopped') {
+      guideStatus.textContent = '경로 등록 해제됨';
+      return;
+    }
+    if (msg.event === 'sessionStart') {
+      guideStatus.textContent = `📢 측정 시작 — 시작 지점 ${msg.number}번 (${msg.name})`;
+      if (measuring) {
+        measurementCrossovers.push({ t: Date.now(), label: `시작 ${msg.number}번` });
+      }
+      return;
+    }
+    if (msg.event === 'sessionEnd') {
+      guideStatus.textContent = '측정 종료 — 안내 중지됨';
+      return;
+    }
+    if (msg.event === 'transition') {
+      guideStatus.textContent = `📢 "${msg.speech}" — ${msg.number}번 ${msg.name} (${msg.number}/${msg.total})`;
+      // 서버가 판단한 전환 시점도 측정 그래프에 남겨둔다
+      if (measuring) {
+        measurementCrossovers.push({ t: Date.now(), label: `${msg.number}번 ${msg.name}` });
+      }
+      return;
+    }
+    if (msg.event === 'error') {
+      console.warn('안내 메시지 오류:', msg.reason);
+    }
   }
 
-  function latestOf(key) {
-    const hist = key ? historyByKey[key] : null;
-    return hist && hist.length > 0 ? hist[hist.length - 1].filtered : null;
-  }
-
-  function updateTracking() {
-    const thresh = parseFloat(document.getElementById('threshInput').value) || 3;
-    const minNext = parseFloat(document.getElementById('minNextInput').value) || -85;
-
-    const prevKey = currentIndex > 0 ? pathKeys[currentIndex - 1] : null;
-    const curKey = pathKeys[currentIndex];
-    const nextKey = currentIndex < pathKeys.length - 1 ? pathKeys[currentIndex + 1] : null;
-
-    const trendPrev = prevKey ? trendOf(prevKey) : null;
-    const trendCur = curKey ? trendOf(curKey) : null;
-    const trendNext = nextKey ? trendOf(nextKey) : null;
-
-    // 추세만으로 판단하면 current가 여전히 확실히 더 센(가까운) 상태인데도
-    // 노이즈로 튄 추세 때문에 넘어가는 경우가 생겨서, 절대 신호값도 같이 확인함
-    const nextLatest = latestOf(nextKey);
-    const curLatest = latestOf(curKey);
-    const prevLatest = latestOf(prevKey);
-
-    let verdict = '유지';
-    let verdictClass = '';
-
-    // 전진 의심: next 신호가 뚜렷이 강해지고(+thresh 이상) 동시에 current는 뚜렷이 약해지고 있으며(-thresh 이하),
-    // next 신호 자체가 최소 감지 기준(minNext)을 넘었고, 절대값도 current를 앞질렀을 때만 인정.
-    // 1회성 노이즈로 바로 넘어가지 않도록 2번 연속 조건이 나와야 실제로 전진시킴
-    if (trendNext !== null && trendCur !== null && trendNext > thresh && trendCur < -thresh
-        && nextLatest !== null && nextLatest > minNext
-        && curLatest !== null && nextLatest > curLatest) {
-      forwardCounter += 1;
-      backCounter = 0;
-      if (forwardCounter >= 2) {
-        currentIndex += 1;
-        forwardCounter = 0;
-        verdict = '전진 → 다음 노드로 이동';
-        verdictClass = 'advance';
-        if (measuring) {
-          measurementCrossovers.push({ t: Date.now(), label: `${shortName(pathKeys[currentIndex])}로 전환` });
-        }
-      } else {
-        verdict = `전진 감지 (${forwardCounter}/2, 연속되면 이동)`;
-        verdictClass = 'warn';
-      }
-    }
-    // 후퇴 의심: prev 신호가 강해지는 정도가 next보다 크고 절대값도 current를 앞질렀을 때 카운트.
-    // 3번 연속 같은 판정이 나야 실제로 되돌림
-    else if (trendPrev !== null && trendPrev > thresh && (trendNext === null || trendPrev > trendNext)
-        && prevLatest !== null && curLatest !== null && prevLatest > curLatest) {
-      backCounter += 1;
-      forwardCounter = 0;
-      if (backCounter >= 3) {
-        currentIndex = Math.max(0, currentIndex - 1);
-        backCounter = 0;
-        verdict = '후퇴 → 이전 노드로 되돌림';
-        verdictClass = 'back';
-        if (measuring) {
-          measurementCrossovers.push({ t: Date.now(), label: `${shortName(pathKeys[currentIndex])}로 전환` });
-        }
-      } else {
-        verdict = `이탈 의심 (${backCounter}/3, 연속되면 되돌림)`;
-        verdictClass = 'warn';
-      }
-    } else {
-      backCounter = 0;
-      forwardCounter = 0;
-    }
-
+  // ---- 경로 진행 추적 (표시 전용) ----
+  // 판정은 전부 서버(app/ws/path_tracker.py)가 한다. 이 페이지는 서버가 RSSI 중계에 실어 보낸
+  // _track 스냅샷을 그대로 그리기만 함 — 같은 규칙을 두 곳에 두면 화면과 음성 안내가 어긋나므로.
+  function renderTrackState(track) {
     const statusDiv = document.getElementById('trackStatus');
-    statusDiv.textContent = `현재 위치: ${pathKeys[currentIndex]} (${currentIndex + 1}/${pathKeys.length})  |  판정: ${verdict}`;
-    statusDiv.className = verdictClass;
+
+    if (!track || !track.enabled) {
+      statusDiv.textContent = '경로 미설정 — 아래에서 경로를 고르고 "추적 시작"을 누르세요';
+      statusDiv.className = '';
+      document.getElementById('trackNumbers').innerHTML = '';
+      return;
+    }
+
+    // 안내는 측정 중에만 나가므로, 대기 상태인지 한눈에 보이게 표시
+    const head = track.active
+      ? `현재 위치: ${track.number}번 (${shortName(track.current)})`
+      : `대기 중 — 측정을 시작하면 가장 가까운 지점부터 안내합니다`;
+
+    statusDiv.textContent = `${head}  |  판정: ${track.verdict}`;
+    statusDiv.className = track.active ? (track.verdictKind || '') : '';
 
     document.getElementById('trackNumbers').innerHTML = [
-      chip('#9e9e9e', 'prev', prevKey, trendPrev),
-      chip('#2196F3', 'current', curKey, trendCur),
-      chip('#4CAF50', 'next', nextKey, trendNext),
+      chip('#9e9e9e', track.index, track.prev, track.trendPrev, -1),
+      chip('#2196F3', track.index, track.current, track.trendCur, 0),
+      chip('#4CAF50', track.index, track.next, track.trendNext, 1),
     ].join('');
   }
 
-  function fmt(v) { return v === null || v === undefined ? '-' : v.toFixed(1); }
+  function fmt(v) { return v === null || v === undefined ? '-' : Number(v).toFixed(1); }
 
-  function chip(color, label, key, trend) {
-    return `<div class="chip"><span class="dot" style="background:${color}"></span>${label}(${key ?? '-'}) 추세 <b>${fmt(trend)}dB</b></div>`;
+  // 비콘은 경로 순서대로 1, 2, 3... 번호로 부른다 (음성 안내도 이 번호만 읽음)
+  function chip(color, curIndex, key, trend, offset) {
+    if (!key) return '';
+    const number = curIndex + offset + 1;
+    return `<div class="chip"><span class="dot" style="background:${color}"></span>`
+      + `<b>${number}번</b> ${shortName(key)} · 추세 <b>${fmt(trend)}dB</b></div>`;
   }
 
   // ---- 구간 측정 ----
@@ -870,8 +1110,25 @@ _MONITOR_HTML = """<!DOCTYPE html>
     return origin === 'phone' ? `📱 ${name}` : `🖥️ ${name}`;
   }
 
-  measureStartBtn.onclick = () => beginMeasurement('', 'monitor');
-  measureEndBtn.onclick = () => finishMeasurement('monitor');
+  // 이 페이지에서 시작해도 서버가 알아야 안내가 켜지고 시작 지점이 확정됨.
+  // (서버 중계는 '보낸 쪽 제외'라 이 메시지가 되돌아오지는 않으므로 중복 시작 걱정 없음)
+  measureStartBtn.onclick = () => {
+    measureSessionId = 'monitor-' + Date.now();
+    ws.send(JSON.stringify({
+      type: 'measure', event: 'start', sessionId: measureSessionId,
+      label: '', timestamp: Date.now(), device: 'monitor',
+    }));
+    beginMeasurement('', 'monitor');
+  };
+
+  measureEndBtn.onclick = () => {
+    ws.send(JSON.stringify({
+      type: 'measure', event: 'end', sessionId: measureSessionId,
+      label: measureLabel, timestamp: Date.now(), device: 'monitor',
+    }));
+    finishMeasurement('monitor');
+    measureSessionId = '';
+  };
 
   function renderMeasureSummary() {
     const controls = document.getElementById('measureChartControls');
