@@ -24,6 +24,40 @@ BACK_STREAK = 3
 DEFAULT_THRESHOLD = 3.0
 DEFAULT_MIN_NEXT = -85.0
 
+# ---- 판정 모드 ----
+# "trend"   : 기존 방식. 최근 40개 중 양끝 4개씩만 평균내어 비교.
+# "segment" : 시간 창을 여러 구간으로 쪼개 구간별 평균을 낸 뒤, 그 평균들의 기울기를 추세로 쓴다.
+#
+# 기존 방식은 40개 중 8개만 쓰고 32개를 버린다. 게다가 창이 "개수" 기준이라 수신 속도에 따라
+# 실제 시간 폭이 달라진다(초당 10개면 4초, 초당 1개면 40초).
+# 구간 방식은 창 안의 모든 샘플을 쓰고, 구간 평균이 1차 평활 역할을 해서
+# BLE 광고 채널 전환으로 생기는 계단식 점프에 덜 흔들린다.
+#
+# 실측 3개 파일(정지 2, 이동 1)로 전수 비교한 결과:
+#   기존   : 정지 오탐 1회, 최소 통과 시간 8초
+#   구간   : 정지 오탐 0회, 최소 통과 시간 6초 (2.5초 / 5구간 / 임계 3dB)
+# 구간을 10개 이상으로 잘게 쪼개면 구간당 샘플이 2~3개로 줄어 다시 노이즈에 흔들린다(오탐 복귀).
+MODE_TREND = "trend"
+MODE_SEGMENT = "segment"
+
+DEFAULT_MODE = MODE_TREND
+# 창 2.0초 / 5구간 / 임계 2.5dB 가 실측 4개 데이터셋 전수 비교에서 가장 좋았다.
+# tests/eval_tracker.py --sweep-full 로 언제든 재현할 수 있다. 선정 근거:
+#   - 정지 오탐 0 (임계 2.0~3.5 전 구간에서 0 → 마진이 가장 넓음)
+#   - 이동 전환 10/10 검출, 초과 0
+#   - 평균 지연 +0.24초, 최대 +1.28초 (이전 기본값 2.5초/3.0dB: +0.36 / +1.72)
+#   - 최소 통과 시간 6초 (구간당 3초)
+# 창을 1.5초로 더 줄이면 수치는 조금 더 좋지만 안전 임계 범위가 2.0~2.5로 좁아지고,
+# 관측된 채널 체류 시간(약 1.8초)보다 짧아서 다른 기기에서 깨질 위험이 있어 택하지 않았다.
+DEFAULT_WINDOW_MS = 2000
+DEFAULT_SEGMENTS = 5
+DEFAULT_SEGMENT_THRESHOLD = 2.5   # 구간 모드 권장 임계값 (trend 모드는 DEFAULT_THRESHOLD 사용)
+
+# 시간 창을 쓰려면 개수 기준(40개)으로는 부족할 수 있어 버퍼를 넉넉히 잡는다.
+# (trend 모드는 여전히 최근 40개만 보므로 동작이 바뀌지 않는다)
+BUFFER_MAX = 300
+BUFFER_MAX_AGE_MS = 15000
+
 
 def short_name(key: str) -> str:
     """비콘 키는 "MAC|이름" 형태 — 안내 음성에는 이름만 쓴다."""
@@ -36,12 +70,16 @@ def short_name(key: str) -> str:
 class PathTracker:
     def __init__(self) -> None:
         self.path: list[str] = []
-        self.history: dict[str, list[float]] = {}
+        # (수신시각ms, 필터값). 시간 창을 쓰려면 시각이 필요해서 값만 담던 것을 튜플로 바꿨다.
+        self.history: dict[str, list[tuple[int, float]]] = {}
         self.index = 0
         self.forward_streak = 0
         self.back_streak = 0
         self.threshold = DEFAULT_THRESHOLD
         self.min_next = DEFAULT_MIN_NEXT
+        self.mode = DEFAULT_MODE
+        self.window_ms = DEFAULT_WINDOW_MS
+        self.segments = DEFAULT_SEGMENTS
         self.enabled = False   # 경로가 등록되어 있는가
         self.active = False    # 측정이 시작되어 실제로 안내를 내보내는 중인가
 
@@ -52,7 +90,15 @@ class PathTracker:
 
     # ---- 설정 ----
 
-    def set_path(self, path: list[str], threshold=None, min_next=None) -> dict:
+    def set_path(
+        self,
+        path: list[str],
+        threshold=None,
+        min_next=None,
+        mode=None,
+        window_ms=None,
+        segments=None,
+    ) -> dict:
         self.path = [p for p in path if p]
         self.history.clear()
         self.index = 0
@@ -66,6 +112,13 @@ class PathTracker:
             self.threshold = float(threshold)
         if min_next is not None:
             self.min_next = float(min_next)
+        if mode in (MODE_TREND, MODE_SEGMENT):
+            self.mode = mode
+        if window_ms is not None:
+            self.window_ms = max(500, int(window_ms))
+        if segments is not None:
+            # 구간이 2개 미만이면 기울기를 낼 수 없고, 너무 잘게 쪼개면 구간당 샘플이 부족해진다
+            self.segments = max(2, min(20, int(segments)))
         self.enabled = len(self.path) >= 2
 
         if not self.enabled:
@@ -86,6 +139,9 @@ class PathTracker:
             "numbers": {p: i + 1 for i, p in enumerate(self.path)},
             "threshold": self.threshold,
             "minNext": self.min_next,
+            "mode": self.mode,
+            "windowMs": self.window_ms,
+            "segments": self.segments,
             # 경로 등록만으로는 말하지 않음 — 측정을 시작해야 안내가 나간다
             "speech": "",
             "timestamp": _now_ms(),
@@ -150,25 +206,78 @@ class PathTracker:
 
     # ---- 데이터 수집 ----
 
-    def feed(self, key: str, filtered_rssi: float) -> None:
+    def feed(self, key: str, filtered_rssi: float, now_ms: int | None = None) -> None:
+        now = _now_ms() if now_ms is None else int(now_ms)
         buf = self.history.setdefault(key, [])
-        buf.append(filtered_rssi)
-        if len(buf) > HISTORY_MAX:
-            del buf[: len(buf) - HISTORY_MAX]
+        buf.append((now, filtered_rssi))
+        # 개수와 나이 둘 다로 정리한다. trend 모드는 어차피 최근 40개만 보므로 영향 없음.
+        while buf and (len(buf) > BUFFER_MAX or now - buf[0][0] > BUFFER_MAX_AGE_MS):
+            buf.pop(0)
 
     # ---- 판정 ----
 
     def _trend(self, key: str):
+        if self.mode == MODE_SEGMENT:
+            return self._trend_segment(key)
+        return self._trend_ends(key)
+
+    def _trend_ends(self, key: str):
+        """기존 방식: 최근 40개 중 양끝 4개씩의 평균 차이."""
         buf = self.history.get(key)
-        if not buf or len(buf) < TREND_WINDOW * 2:
+        if not buf:
             return None
-        recent = sum(buf[-TREND_WINDOW:]) / TREND_WINDOW
-        old = sum(buf[:TREND_WINDOW]) / TREND_WINDOW
+        vals = [v for _, v in buf][-HISTORY_MAX:]
+        if len(vals) < TREND_WINDOW * 2:
+            return None
+        recent = sum(vals[-TREND_WINDOW:]) / TREND_WINDOW
+        old = sum(vals[:TREND_WINDOW]) / TREND_WINDOW
         return recent - old
+
+    def _trend_segment(self, key: str):
+        """구간 방식: 시간 창을 N구간으로 쪼개 구간 평균을 낸 뒤, 그 평균들의 기울기.
+
+        예) 2.5초 창에 초당 10개면 약 25개 -> 5개씩 묶어 평균 5개 -> 그 5점의 기울기.
+        반환값은 기울기 자체가 아니라 "창 전체에 걸친 변화량(dB)"으로 환산한 값이라,
+        기존 방식의 임계값(dB)을 그대로 쓸 수 있다.
+        """
+        buf = self.history.get(key)
+        if not buf:
+            return None
+
+        now = buf[-1][0]
+        pts = [(t, v) for t, v in buf if now - t <= self.window_ms]
+        # 구간당 최소 2개는 있어야 평균이 의미가 있다
+        if len(pts) < self.segments * 2:
+            return None
+
+        t0, t1 = pts[0][0], pts[-1][0]
+        if t1 == t0:
+            return None
+
+        buckets: list[list[float]] = [[] for _ in range(self.segments)]
+        for t, v in pts:
+            idx = int((t - t0) / (t1 - t0 + 1) * self.segments)
+            buckets[min(self.segments - 1, idx)].append(v)
+
+        means = [(i, sum(b) / len(b)) for i, b in enumerate(buckets) if b]
+        if len(means) < 2:
+            return None
+
+        # 구간 평균들에 직선을 맞춰 기울기를 구한다 (최소제곱)
+        n = len(means)
+        mean_i = sum(i for i, _ in means) / n
+        mean_v = sum(v for _, v in means) / n
+        den = sum((i - mean_i) ** 2 for i, _ in means)
+        if den == 0:
+            return None
+        slope = sum((i - mean_i) * (v - mean_v) for i, v in means) / den
+
+        # 구간 인덱스당 기울기 -> 창 전체 변화량으로 환산
+        return slope * (means[-1][0] - means[0][0])
 
     def _latest(self, key):
         buf = self.history.get(key) if key else None
-        return buf[-1] if buf else None
+        return buf[-1][1] if buf else None
 
     def evaluate(self) -> dict | None:
         """지금 상태로 전진/후퇴를 판정. 실제로 노드가 바뀌었을 때만 안내 dict를 반환.
@@ -255,6 +364,7 @@ class PathTracker:
         return {
             "enabled": True,
             "active": self.active,
+            "mode": self.mode,
             "index": self.index,
             "number": self.index + 1,
             "total": len(self.path),
