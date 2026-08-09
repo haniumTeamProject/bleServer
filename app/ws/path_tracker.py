@@ -27,7 +27,8 @@ DEFAULT_MIN_NEXT = -85.0
 # ---- 판정 모드 ----
 # "trend"   : 기존 방식. 최근 40개 중 양끝 4개씩만 평균내어 비교.
 # "segment" : 시간 창을 여러 구간으로 쪼개 구간별 평균을 낸 뒤, 그 평균들의 기울기를 추세로 쓴다.
-#
+# "linreg"  : HISTORY_MAX개 원본 샘플 전체에 최소제곱 회귀선을 맞춰 기울기를 구한다.
+#             segment처럼 구간 평균 없이 원시 샘플을 그대로 쓴다 (아직 실측 비교 전, trend/segment 대비 검증 필요).
 # 기존 방식은 40개 중 8개만 쓰고 32개를 버린다. 게다가 창이 "개수" 기준이라 수신 속도에 따라
 # 실제 시간 폭이 달라진다(초당 10개면 4초, 초당 1개면 40초).
 # 구간 방식은 창 안의 모든 샘플을 쓰고, 구간 평균이 1차 평활 역할을 해서
@@ -39,6 +40,7 @@ DEFAULT_MIN_NEXT = -85.0
 # 구간을 10개 이상으로 잘게 쪼개면 구간당 샘플이 2~3개로 줄어 다시 노이즈에 흔들린다(오탐 복귀).
 MODE_TREND = "trend"
 MODE_SEGMENT = "segment"
+MODE_LINREG = "linreg"
 
 DEFAULT_MODE = MODE_TREND
 # 창 2.0초 / 5구간 / 임계 2.5dB 가 실측 4개 데이터셋 전수 비교에서 가장 좋았다.
@@ -112,7 +114,7 @@ class PathTracker:
             self.threshold = float(threshold)
         if min_next is not None:
             self.min_next = float(min_next)
-        if mode in (MODE_TREND, MODE_SEGMENT):
+        if mode in (MODE_TREND, MODE_SEGMENT, MODE_LINREG):
             self.mode = mode
         if window_ms is not None:
             self.window_ms = max(500, int(window_ms))
@@ -219,6 +221,8 @@ class PathTracker:
     def _trend(self, key: str):
         if self.mode == MODE_SEGMENT:
             return self._trend_segment(key)
+        if self.mode == MODE_LINREG:
+            return self._trend_linreg(key)
         return self._trend_ends(key)
 
     def _trend_ends(self, key: str):
@@ -274,6 +278,41 @@ class PathTracker:
 
         # 구간 인덱스당 기울기 -> 창 전체 변화량으로 환산
         return slope * (means[-1][0] - means[0][0])
+
+    def _trend_linreg(self, key: str):
+        """선형회귀 방식: 최근 HISTORY_MAX개 원본 샘플 전체에 최소제곱 직선을 맞춰 기울기를 구한다.
+
+        _trend_segment와 달리 구간으로 묶어 평균내지 않고 원시 샘플 각각을 그대로 회귀에 사용한다.
+        구간 평균이 주는 1차 평활 효과는 없지만, 표본을 버리지 않고 전체 창의 추세를
+        한 번에 반영한다는 점에서 _trend_ends(양끝 평균차)보다 non-monotonic 구간에 덜 흔들린다.
+
+        x축은 실제 수신 시각(ms)이 아니라 샘플 인덱스를 쓴다 — 샘플 간격이 불규칙해도
+        "표본 순서상의 추세"를 안정적으로 보기 위함. 시간 간격 자체가 중요하면
+        buf의 timestamp를 x로 바꿔 쓰면 된다 (그 경우 반환값 스케일도 같이 바뀐다).
+
+        반환값은 기울기 자체가 아니라 "윈도우 전체 구간의 변화량(dB)"으로 환산해서,
+        기존 trend/segment 모드와 같은 임계값(threshold, dB)을 그대로 쓸 수 있게 한다.
+        """
+        buf = self.history.get(key)
+        if not buf:
+            return None
+        vals = [v for _, v in buf][-HISTORY_MAX:]
+        n = len(vals)
+        if n < TREND_WINDOW * 2:
+            return None
+
+        sum_x = sum(range(n))
+        sum_y = sum(vals)
+        sum_xy = sum(i * v for i, v in enumerate(vals))
+        sum_xx = sum(i * i for i in range(n))
+
+        denom = n * sum_xx - sum_x * sum_x
+        if denom == 0:
+            return None
+        slope = (n * sum_xy - sum_x * sum_y) / denom
+
+        # 샘플 인덱스당 기울기 -> 윈도우 전체(n-1구간) 변화량으로 환산
+        return slope * (n - 1)
 
     def _latest(self, key):
         buf = self.history.get(key) if key else None
