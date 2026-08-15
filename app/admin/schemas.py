@@ -21,6 +21,20 @@ class SignupRequest(CamelModel):
     # 나중에 파일 업로드 붙이면 별도 multipart 엔드포인트로 처리
 
 
+class UpdateProfileRequest(CamelModel):
+    """내 정보 수정. 관리자웹의 계정 화면에서 쓴다.
+
+    보내온 필드만 바꾼다 — None 은 "안 건드림"이지 "비움"이 아니다.
+    """
+
+    name: str | None = None
+    email: str | None = None
+    org: str | None = None
+    position: str | None = None
+    phone: str | None = None
+    building: str | None = None
+
+
 class UpdateStatusRequest(CamelModel):
     status: str  # active | rejected
 

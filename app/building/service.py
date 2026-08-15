@@ -2,35 +2,26 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.building.models import Building
-from app.building.schemas import BuildingRequest
-from app.floor.models import Floor
-
-# 층 진행 단계 순서. 건물 상태는 "가장 뒤처진 층" 기준으로 매김.
-# connector_missing은 층 단위가 아니라 건물 단위(수직 연결자) 개념이라 여기 집계에는 안 씀.
-_FLOOR_STAGE_ORDER = ["floorplan_missing", "review_needed", "beacon_missing", "ready"]
+from app.building.schemas import BuildingRequest, BuildingResponse
+from app.status import building_status
 
 
-def recompute_status(db: Session, building_id: str) -> None:
-    building = db.get(Building, building_id)
-    if building is None:
-        return
-
-    floors = db.query(Floor).filter(Floor.building_id == building_id).all()
-    if not floors:
-        building.status = "floorplan_missing"
-    else:
-        building.status = min(
-            floors,
-            key=lambda f: _FLOOR_STAGE_ORDER.index(f.status)
-            if f.status in _FLOOR_STAGE_ORDER
-            else 0,
-        ).status
-
-    db.commit()
+def to_response(db: Session, building: Building) -> BuildingResponse:
+    """status 는 저장값이 아니라 층들로부터 지금 계산한 값 (app/status.py)."""
+    return BuildingResponse(
+        id=building.id,
+        code=building.code,
+        name=building.name,
+        address=building.address,
+        floor_count=building.floor_count,
+        favorite=building.favorite,
+        status=building_status(db, building.id),
+        created_at=building.created_at,
+    )
 
 
-def list_buildings(db: Session) -> list[Building]:
-    return db.query(Building).all()
+def list_buildings(db: Session) -> list[BuildingResponse]:
+    return [to_response(db, b) for b in db.query(Building).all()]
 
 
 def get_building(db: Session, building_id: str) -> Building:
@@ -40,21 +31,20 @@ def get_building(db: Session, building_id: str) -> Building:
     return building
 
 
-def create_building(db: Session, req: BuildingRequest) -> Building:
+def create_building(db: Session, req: BuildingRequest) -> BuildingResponse:
     building = Building(
         code=req.code,
         name=req.name,
         address=req.address,
         floor_count=req.floor_count,
-        status="floorplan_missing",
     )
     db.add(building)
     db.commit()
     db.refresh(building)
-    return building
+    return to_response(db, building)
 
 
-def update_building(db: Session, building_id: str, req: BuildingRequest) -> Building:
+def update_building(db: Session, building_id: str, req: BuildingRequest) -> BuildingResponse:
     building = get_building(db, building_id)
     if req.code is not None:
         building.code = req.code
@@ -66,7 +56,7 @@ def update_building(db: Session, building_id: str, req: BuildingRequest) -> Buil
         building.floor_count = req.floor_count
     db.commit()
     db.refresh(building)
-    return building
+    return to_response(db, building)
 
 
 def delete_building(db: Session, building_id: str) -> None:

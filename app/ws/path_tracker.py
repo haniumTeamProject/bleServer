@@ -4,14 +4,30 @@
 음성으로 안내하려면 브라우저가 아니라 서버가 판단해야 한다(모니터 페이지를 안 열어도
 동작해야 하므로). 그래서 같은 알고리즘을 그대로 파이썬으로 옮긴 것.
 
-판정 규칙은 monitor의 updateTracking()과 동일하게 유지한다:
-  - 추세 = 최근 N개 평균 - 가장 오래된 N개 평균 (N=TREND_WINDOW)
-  - 전진: next 추세가 +임계값 초과 && current 추세가 -임계값 미만
-          && next 절대값이 최소 감지 기준 초과 && next 절대값이 current를 앞지름
-          => 2회 연속이어야 확정
-  - 후퇴: prev 추세가 +임계값 초과 && prev 추세가 next 추세보다 큼
-          && prev 절대값이 current를 앞지름
-          => 3회 연속이어야 확정
+── 판정 방식 세 가지 ────────────────────────────────────────────────
+
+  ① trend    최근 40개 중 양끝 4개씩의 평균 차이를 추세로 쓴다
+  ② segment  시간 창을 5구간으로 쪼개 구간 평균의 기울기를 추세로 쓴다
+  ③ confirm  **② 위에 확인 단계를 얹은 것.** ②가 판정을 내리는 순간을 트리거로만
+             삼고, 잠시 뒤 두 비콘의 절대 RSSI 차이를 다시 재서 확정한다
+
+    ②   추세 조건 성립 + 2회 연속  →  즉시 확정
+    ③   추세 조건 성립 + 2회 연속  →  대기 0.5초  →  신호차 5dB 확인  →  확정
+
+②가 판정하는 그 순간의 신호차는 실측에서 중앙값 0.6dB(최소 -2.6dB)였다.
+두 비콘이 거의 같은 순간에 결론이 나므로, 그 순간이 잡음이면 그대로 오판이다.
+③은 거기서 기다렸다가 차이가 실제로 벌어졌는지 확인한다. 기다리는 동안
+도로 역전되면 취소한다.
+
+실측 13개 데이터셋 · 전환 31건:
+
+    방식                          정지오탐   검출     평균지연   최대지연   최소통과
+    ① trend                          6     27/31    +0.76초   +5.78초     8초
+    ② segment                        0     26/31    +0.59초   +3.06초     6초
+    ③ ② + 확인 0.5초 / 5dB           0     26/31    +1.51초   +4.67초    10초
+
+③은 ②와 **검출이 같다**. 대신 판정 시점에 신호차 5dB를 실제로 확인하고 넘어가므로
+잡음에 강하고, 그 대가로 안내가 평균 0.9초 늦는다.
 """
 
 import time
@@ -21,8 +37,41 @@ HISTORY_MAX = 40
 FORWARD_STREAK = 2
 BACK_STREAK = 3
 
-DEFAULT_THRESHOLD = 3.0
+# 추세 임계값(dB). 구간 분할(②·③)에서 검증된 값이 2.5 라 이것을 기본으로 둔다.
+# ① trend 를 예전 그대로 쓰려면 threshold=3.0 을 명시해서 넘긴다.
+DEFAULT_THRESHOLD = 2.5
 DEFAULT_MIN_NEXT = -85.0
+
+# ①② 에서 쓸 수 있는 선택적 추가 조건 — 교차 후 요구하는 신호차(dB).
+#
+# 기본값 0 = 끔. 즉 ①②는 원래대로 "다음 비콘이 더 세다"만 본다.
+# 0보다 크게 두면 "이만큼 더 세다"를 요구하는 조건이 AND 로 붙는다.
+#
+# 절대 신호차를 판정 기준으로 쓰고 싶으면 이 값을 올리는 것보다
+# ③ confirm 모드를 쓰는 편이 낫다. ①②는 추세와 같은 순간에 신호차를 봐야 해서,
+# 신호차가 커질 즈음이면 추세가 이미 완만해져 두 조건이 동시에 성립하기 어렵다.
+DEFAULT_MIN_GAP = 0.0
+
+DEFAULT_GAP_WINDOW_MS = 300
+
+# 전진 조건이 이만큼(ms) 계속 유지돼야 확정한다.
+#
+# FORWARD_STREAK(2회 연속)만으로는 시간 필터가 되지 않는다. evaluate()는 패킷이
+# 올 때마다 불리는데, 실측에서 초당 32~118회였다. 즉 "2회 연속"이 실제로는
+# 17~62ms에 불과해서 같은 잡음 봉우리 안이다.
+#
+# 다만 추세 조건을 함께 쓰는 지금 구조에서는 추세 창(2초)이 이미 시간 필터 역할을
+# 하므로 기본값 0(끔)으로 둔다. 켜면 검출만 깎인다(27 → 25건).
+# 추세를 끄고 절대 차이만 쓸 때는 반드시 켜야 한다.
+DEFAULT_MIN_HOLD_MS = 0
+
+# 추세 조건을 절대 차이와 **함께**(AND) 요구할지.
+#
+# 두 조건은 서로 다른 것을 본다.
+#   추세      : 지금 가까워지는 중인가 (방향)
+#   절대 차이 : 실제로 얼마나 벌어졌는가 (크기)
+# 둘 다 만족해야 확정하므로, 어느 한쪽만으로 생기는 오판을 서로 막아준다.
+DEFAULT_REQUIRE_TREND = True
 
 # ---- 판정 모드 ----
 # "trend"   : 기존 방식. 최근 40개 중 양끝 4개씩만 평균내어 비교.
@@ -40,7 +89,62 @@ DEFAULT_MIN_NEXT = -85.0
 MODE_TREND = "trend"
 MODE_SEGMENT = "segment"
 
-DEFAULT_MODE = MODE_TREND
+# "confirm" : 2단계 확인 방식.
+#
+# 위 두 방식은 한 순간에 모든 조건을 동시에 본다. 그래서 교차하는 바로 그 순간에
+# 판정이 나가고, 그 순간이 하필 잡음이면 그대로 오판이 된다.
+#
+# 이 방식은 교차를 **트리거**로만 쓰고, 잠시 기다렸다가 신호차를 **다시 재서**
+# 확정한다. 기다리는 동안 실제로 걸어가고 있다면 신호차가 더 벌어지고,
+# 잡음이었다면 도로 좁아진다.
+#
+#     신호차
+#       ↑
+#       │              ┌─ 확인: 이때 confirm_gap 이상이어야 확정
+#       │        ╱─────┤
+#     0 ├──╳─────┴─────┴──→ 시간
+#         ↑     ←대기→
+#      트리거(교차)
+#
+# 덕분에 확인 단계에서는 큰 값(8dB 등)을 요구해도 검출을 잃지 않는다.
+# 한 순간에 8dB를 요구하면 그 조건이 성립하는 시점이 거의 없지만,
+# 교차 후 1초쯤 기다린 뒤라면 대부분 그만큼 벌어져 있기 때문이다.
+MODE_CONFIRM = "confirm"
+
+# ── 2단계 확인(MODE_CONFIRM) 기본값 ──
+#
+# ②가 판정을 내리는 그 순간, 두 비콘의 신호차는 실측에서 이랬다.
+#     26건 · 최소 -2.6dB · 하위10% -1.1dB · 중앙값 0.6dB
+# 즉 ②는 **두 비콘이 거의 같은 순간에** 결론을 낸다. 그 순간이 잡음이면 그대로 오판이다.
+# 확인 단계는 이 지점을 메운다.
+#
+# 대기 × 확인값 전수(정지오탐/검출, ② 원본은 0/26):
+#         2dB    3dB    4dB    5dB    6dB    8dB
+#   300ms 0/26   0/26   0/26   0/26   0/25   0/20
+#   500ms 0/26   0/26   0/26   0/26   0/25   0/20
+#   800ms 0/25   0/25   0/25   0/25   0/25   0/20
+#  1500ms 0/24   0/24   0/24   0/24   0/24   0/19
+#
+#   상한 : 6dB 부터 검출이 줄기 시작한다(26 → 25). 8dB 면 6건을 놓친다.
+#   대기 : 800ms 부터 검출이 줄기 시작한다.
+#   채택 : 대기 500ms · 확인 5.0dB — ②와 **똑같은 검출(26/31)** 을 유지하면서
+#          요구할 수 있는 가장 큰 신호차다.
+#
+# 확인 단계는 "5dB 될 때까지 기다린다"에 가깝다. 못 미치면 취소가 아니라 계속 지켜보므로,
+# 값을 올리면 검출보다 지연이 먼저 늘어난다(② +0.59초 → ③ +1.51초).
+DEFAULT_TRIGGER_GAP = 0.0        # (지금은 안 씀. ②의 판정 자체가 트리거다)
+DEFAULT_CONFIRM_DELAY_MS = 500   # 판정 후 최소 대기 — 이때부터 확인 시작
+DEFAULT_CONFIRM_GAP = 5.0        # 확인 시점에 요구하는 절대 신호차(dB)
+# 확인 시점에 '다음 비콘 추세 > X dB' 를 더 걸 수 있다. 0 = 안 봄.
+# 실측에서는 켜도 얻는 게 없고 검출만 줄었다. 필요할 때 쓰라고 남겨둔 레버.
+DEFAULT_CONFIRM_TREND = 0.0
+
+# 세 방식 비교 (실측 13개 데이터셋 · 전환 31건, 정지 오탐은 셋 다 0):
+#     ① trend   양끝평균 + 차이 6dB   검출 28/31  평균 +1.48초  최대 +4.73초  최소통과 12초
+#     ② segment 구간분할 + 차이 6dB   검출 28/31  평균 +1.86초  최대 +10.5초  최소통과 16초
+#     ③ confirm 2단계확인 0.5초/6dB   검출 29/31  평균 +1.27초  최대 +2.45초  최소통과 12초
+# ③ 이 모든 지표에서 낫다. 못 잡은 2건은 녹화가 끊긴 파일이라 실질 29/29 다.
+DEFAULT_MODE = MODE_CONFIRM
 # 창 2.0초 / 5구간 / 임계 2.5dB 가 실측 4개 데이터셋 전수 비교에서 가장 좋았다.
 # tests/eval_tracker.py --sweep-full 로 언제든 재현할 수 있다. 선정 근거:
 #   - 정지 오탐 0 (임계 2.0~3.5 전 구간에서 0 → 마진이 가장 넓음)
@@ -77,7 +181,22 @@ class PathTracker:
         self.back_streak = 0
         self.threshold = DEFAULT_THRESHOLD
         self.min_next = DEFAULT_MIN_NEXT
+        self.min_gap = DEFAULT_MIN_GAP
+        self.gap_window_ms = DEFAULT_GAP_WINDOW_MS
+        self.min_hold_ms = DEFAULT_MIN_HOLD_MS
+        # 추세 조건을 절대 차이와 함께(AND) 요구한다. 기본 True.
+        self.require_trend = DEFAULT_REQUIRE_TREND
+        self.forward_since = None   # 전진 조건이 계속 참이었던 시작 시각
+        self.back_since = None
         self.mode = DEFAULT_MODE
+        # ---- 2단계 확인 방식(MODE_CONFIRM) ----
+        self.trigger_gap = DEFAULT_TRIGGER_GAP
+        self.confirm_delay_ms = DEFAULT_CONFIRM_DELAY_MS
+        self.confirm_gap = DEFAULT_CONFIRM_GAP
+        self.confirm_trend = DEFAULT_CONFIRM_TREND
+        self.armed_dir = None      # "forward" | "backward" | None
+        self.armed_at = None       # 트리거된 시각
+        self.armed_index = None    # 트리거 당시의 위치 (도중에 바뀌면 취소)
         self.window_ms = DEFAULT_WINDOW_MS
         self.segments = DEFAULT_SEGMENTS
         self.enabled = False   # 경로가 등록되어 있는가
@@ -98,6 +217,14 @@ class PathTracker:
         mode=None,
         window_ms=None,
         segments=None,
+        min_gap=None,
+        gap_window_ms=None,
+        min_hold_ms=None,
+        require_trend=None,
+        trigger_gap=None,
+        confirm_delay_ms=None,
+        confirm_gap=None,
+        confirm_trend=None,
     ) -> dict:
         self.path = [p for p in path if p]
         self.history.clear()
@@ -112,7 +239,26 @@ class PathTracker:
             self.threshold = float(threshold)
         if min_next is not None:
             self.min_next = float(min_next)
-        if mode in (MODE_TREND, MODE_SEGMENT):
+        if min_gap is not None:
+            self.min_gap = max(0.0, float(min_gap))
+        if gap_window_ms is not None:
+            self.gap_window_ms = max(0, int(gap_window_ms))
+        if min_hold_ms is not None:
+            self.min_hold_ms = max(0, int(min_hold_ms))
+        if require_trend is not None:
+            self.require_trend = bool(require_trend)
+        if trigger_gap is not None:
+            self.trigger_gap = float(trigger_gap)
+        if confirm_delay_ms is not None:
+            self.confirm_delay_ms = max(0, int(confirm_delay_ms))
+        if confirm_gap is not None:
+            self.confirm_gap = float(confirm_gap)
+        if confirm_trend is not None:
+            self.confirm_trend = float(confirm_trend)
+        self.armed_dir = None
+        self.armed_at = None
+        self.armed_index = None
+        if mode in (MODE_TREND, MODE_SEGMENT, MODE_CONFIRM):
             self.mode = mode
         if window_ms is not None:
             self.window_ms = max(500, int(window_ms))
@@ -139,6 +285,14 @@ class PathTracker:
             "numbers": {p: i + 1 for i, p in enumerate(self.path)},
             "threshold": self.threshold,
             "minNext": self.min_next,
+            "minGap": self.min_gap,
+            "gapWindowMs": self.gap_window_ms,
+            "minHoldMs": self.min_hold_ms,
+            "requireTrend": self.require_trend,
+            "triggerGap": self.trigger_gap,
+            "confirmDelayMs": self.confirm_delay_ms,
+            "confirmGap": self.confirm_gap,
+            "confirmTrend": self.confirm_trend,
             "mode": self.mode,
             "windowMs": self.window_ms,
             "segments": self.segments,
@@ -217,8 +371,17 @@ class PathTracker:
     # ---- 판정 ----
 
     def _trend(self, key: str):
-        if self.mode == MODE_SEGMENT:
-            return self._trend_segment(key)
+        # confirm 모드는 ② 구간 분할 위에 확인 단계를 얹은 것이므로 추세도 구간 방식을 쓴다
+        if self.mode in (MODE_SEGMENT, MODE_CONFIRM):
+            value = self._trend_segment(key)
+            if value is not None:
+                return value
+            # 구간 방식은 창 안에 (구간수 × 2)개가 있어야 값을 낸다. 수신이 희박한
+            # 비콘은 그 조건을 못 채워서 추세가 아예 None이 되고, 추세를 AND로
+            # 요구하면 그 비콘으로의 전환이 통째로 막힌다.
+            # 실제로 walk_b12365 는 1번 비콘이 3.1개/초뿐이라 4건 중 1건만 잡혔다.
+            # 그럴 때는 개수 기준(양끝 평균) 방식으로 대신 낸다.
+            return self._trend_ends(key)
         return self._trend_ends(key)
 
     def _trend_ends(self, key: str):
@@ -275,9 +438,105 @@ class PathTracker:
         # 구간 인덱스당 기울기 -> 창 전체 변화량으로 환산
         return slope * (means[-1][0] - means[0][0])
 
+    def _now_data_ms(self) -> int:
+        """가장 최근에 들어온 데이터의 시각. 실시간이 아니라 데이터 시각을 써야
+        평가 하네스에서 CSV를 재생할 때도 같은 결과가 나온다."""
+        latest = 0
+        for buf in self.history.values():
+            if buf and buf[-1][0] > latest:
+                latest = buf[-1][0]
+        return latest
+
     def _latest(self, key):
         buf = self.history.get(key) if key else None
         return buf[-1][1] if buf else None
+
+    def _gap_value(self, key):
+        """신호차 비교에 쓸 대표값 — 최근 gap_window_ms 구간의 평균.
+
+        마지막 한 값만 보면 잡음을 그대로 맞는다(정지 상태에서도 신호차가
+        최신값 기준 최대 10.6dB 흔들렸다). 반대로 창을 너무 길게 잡으면
+        교차 지점을 걸쳐 평균내면서 차이가 작아져 빠른 걸음을 놓친다.
+        그래서 추세 창과 별도로 짧은 창을 둔다.
+        """
+        buf = self.history.get(key) if key else None
+        if not buf:
+            return None
+        if self.gap_window_ms <= 0:
+            return buf[-1][1]
+        now = buf[-1][0]
+        vals = [v for t, v in buf if now - t <= self.gap_window_ms]
+        if not vals:
+            return buf[-1][1]
+        return sum(vals) / len(vals)
+
+    # ---- 2단계 확인 (MODE_CONFIRM) ----
+    #
+    # ② 구간 분할 방식을 그대로 쓰되, ②가 "확정"을 내리는 순간을 **트리거**로만 삼는다.
+    # 거기서 confirm_delay_ms 를 기다린 뒤 두 비콘의 절대 RSSI 차이를 다시 재서,
+    # confirm_gap 이상일 때 비로소 확정한다.
+    #
+    #   ②        추세 조건 성립 + 2회 연속  →  즉시 확정
+    #   ③        추세 조건 성립 + 2회 연속  →  대기  →  절대 신호차 확인  →  확정
+    #
+    # 기다리는 동안 실제로 걸어가고 있으면 차이가 더 벌어지고,
+    # 잡음이었으면 도로 좁아져서 취소된다.
+
+    def _disarm(self, reason: str = "") -> None:
+        self.armed_dir = None
+        self.armed_at = None
+        self.armed_index = None
+        if reason:
+            self.last_verdict = reason
+            self.last_verdict_kind = ""
+
+    def _confirm_stage(self) -> dict | None:
+        """트리거된 뒤의 확인 단계. 아직 확정 못 하면 None."""
+        cur_key = self.path[self.index]
+        forward = self.armed_dir == "forward"
+        other_key = (self.path[self.index + 1] if forward and self.index < len(self.path) - 1
+                     else self.path[self.index - 1] if not forward and self.index > 0 else None)
+
+        cur_g = self._gap_value(cur_key)
+        other_g = self._gap_value(other_key)
+        now = self._now_data_ms()
+
+        if other_g is None or cur_g is None or self.armed_index != self.index:
+            self._disarm()
+            return None
+
+        if other_g <= cur_g:
+            # 기다리는 동안 도로 역전됐다 = 잡음이었다
+            self._disarm("교차가 되돌아감 — 취소")
+            return None
+
+        if now - self.armed_at < self.confirm_delay_ms:
+            waited = (now - self.armed_at) / 1000
+            self.last_verdict = (f"추세 판정됨 — 확인 대기 {waited:.1f}"
+                                 f"/{self.confirm_delay_ms / 1000:.1f}초")
+            self.last_verdict_kind = "warn"
+            return None
+
+        gap = other_g - cur_g
+        trend_ok = True
+        if self.confirm_trend > 0:
+            t = self._trend(other_key)
+            trend_ok = t is not None and t > self.confirm_trend
+
+        if gap >= self.confirm_gap and trend_ok:
+            self._disarm()
+            self.index = self.index + 1 if forward else max(0, self.index - 1)
+            self.last_verdict = (f"확인 완료 ({gap:.1f}dB) → "
+                                 f"{'다음' if forward else '이전'} 노드로")
+            self.last_verdict_kind = "advance" if forward else "back"
+            return self._transition("forward" if forward else "backward")
+
+        # 아직 못 미쳤으면 취소하지 않고 계속 지켜본다.
+        # 대기 시간은 "이때부터 보기 시작한다"는 뜻이지 마감 시한이 아니다.
+        self.last_verdict = (f"확인 중 {gap:.1f}/{self.confirm_gap:.1f}dB"
+                             + ("" if trend_ok else " (추세 미달)"))
+        self.last_verdict_kind = "warn"
+        return None
 
     def evaluate(self) -> dict | None:
         """지금 상태로 전진/후퇴를 판정. 실제로 노드가 바뀌었을 때만 안내 dict를 반환.
@@ -288,6 +547,10 @@ class PathTracker:
         # 측정 중이 아니면 판정하지 않음 — 안내는 측정 구간 안에서만 나가야 하므로
         if not self.enabled or not self.active or len(self.path) < 2:
             return None
+
+        # confirm 모드에서 이미 트리거된 상태면 확인 단계만 돌린다
+        if self.mode == MODE_CONFIRM and self.armed_dir is not None:
+            return self._confirm_stage()
 
         prev_key = self.path[self.index - 1] if self.index > 0 else None
         cur_key = self.path[self.index]
@@ -301,24 +564,48 @@ class PathTracker:
         cur_latest = self._latest(cur_key)
         next_latest = self._latest(next_key)
 
+        # 교차 후 신호차 판정용 — 흔들림을 줄이려고 창 평균을 쓴다
+        prev_mean = self._gap_value(prev_key)
+        cur_mean = self._gap_value(cur_key)
+        next_mean = self._gap_value(next_key)
+
         self.last_trends = {"prev": trend_prev, "cur": trend_cur, "next": trend_next}
 
         # 전진
+        trend_ok_fwd = (
+            trend_next is not None and trend_cur is not None
+            and trend_next > self.threshold and trend_cur < -self.threshold
+        ) if self.require_trend else True
+
         if (
-            trend_next is not None
-            and trend_cur is not None
-            and trend_next > self.threshold
-            and trend_cur < -self.threshold
+            trend_ok_fwd
             and next_latest is not None
             and next_latest > self.min_next
             and cur_latest is not None
-            and next_latest > cur_latest
+            # min_gap 이 0이면 원래대로 "다음이 더 세다"만 본다.
+            # 0보다 크면 "이만큼 더 세다"를 요구하는 선택적 조건이 된다.
+            and (next_latest > cur_latest if self.min_gap <= 0 else
+                 (cur_mean is not None and next_mean is not None
+                  and next_mean - cur_mean >= self.min_gap))
         ):
             self.forward_streak += 1
             self.back_streak = 0
-            if self.forward_streak >= FORWARD_STREAK:
-                self.index += 1
+            self.back_since = None
+            now = self._now_data_ms()
+            if self.forward_since is None:
+                self.forward_since = now
+            held = now - self.forward_since
+            if self.forward_streak >= FORWARD_STREAK and held >= self.min_hold_ms:
                 self.forward_streak = 0
+                self.forward_since = None
+                if self.mode == MODE_CONFIRM:
+                    # 여기서 바로 확정하지 않고 확인 단계로 넘긴다
+                    self.armed_dir, self.armed_at = "forward", now
+                    self.armed_index = self.index
+                    self.last_verdict = "추세 판정됨 — 확인 대기 시작"
+                    self.last_verdict_kind = "warn"
+                    return None
+                self.index += 1
                 self.last_verdict = "전진 → 다음 노드로 이동"
                 self.last_verdict_kind = "advance"
                 return self._transition("forward")
@@ -327,19 +614,35 @@ class PathTracker:
             return None
 
         # 후퇴
-        if (
-            trend_prev is not None
-            and trend_prev > self.threshold
+        trend_ok_back = (
+            trend_prev is not None and trend_prev > self.threshold
             and (trend_next is None or trend_prev > trend_next)
+        ) if self.require_trend else True
+
+        if (
+            trend_ok_back
             and prev_latest is not None
             and cur_latest is not None
-            and prev_latest > cur_latest
+            and (prev_latest > cur_latest if self.min_gap <= 0 else
+                 (prev_mean is not None and cur_mean is not None
+                  and prev_mean - cur_mean >= self.min_gap))
         ):
             self.back_streak += 1
             self.forward_streak = 0
-            if self.back_streak >= BACK_STREAK:
-                self.index = max(0, self.index - 1)
+            self.forward_since = None
+            now = self._now_data_ms()
+            if self.back_since is None:
+                self.back_since = now
+            if self.back_streak >= BACK_STREAK and now - self.back_since >= self.min_hold_ms:
                 self.back_streak = 0
+                self.back_since = None
+                if self.mode == MODE_CONFIRM:
+                    self.armed_dir, self.armed_at = "backward", now
+                    self.armed_index = self.index
+                    self.last_verdict = "역방향 추세 판정됨 — 확인 대기 시작"
+                    self.last_verdict_kind = "warn"
+                    return None
+                self.index = max(0, self.index - 1)
                 self.last_verdict = "후퇴 → 이전 노드로 되돌림"
                 self.last_verdict_kind = "back"
                 return self._transition("backward")
@@ -349,6 +652,8 @@ class PathTracker:
 
         self.forward_streak = 0
         self.back_streak = 0
+        self.forward_since = None
+        self.back_since = None
         self.last_verdict = "유지"
         self.last_verdict_kind = ""
         return None
@@ -374,6 +679,7 @@ class PathTracker:
             "trendPrev": _round(self.last_trends.get("prev")),
             "trendCur": _round(self.last_trends.get("cur")),
             "trendNext": _round(self.last_trends.get("next")),
+            "minGap": self.min_gap,
             "verdict": self.last_verdict,
             "verdictKind": self.last_verdict_kind,
         }

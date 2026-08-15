@@ -1,0 +1,3287 @@
+{
+ "pathNodes": [
+  {
+   "name": "corridor_with_room",
+   "w": 200,
+   "h": 60,
+   "rects": [
+    [
+     0,
+     20,
+     200,
+     40
+    ],
+    [
+     80,
+     0,
+     120,
+     20
+    ]
+   ],
+   "entrances": [
+    {
+     "x": 82,
+     "y": 2,
+     "kind": "landmark"
+    }
+   ],
+   "crossingMaxPx": null,
+   "nodes": [
+    {
+     "id": "N01",
+     "x": 80,
+     "y": 0,
+     "type": "landmark",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N02",
+     "x": 120,
+     "y": 0,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N03",
+     "x": 120,
+     "y": 20,
+     "type": "corner",
+     "concave": true,
+     "pairKind": null
+    },
+    {
+     "id": "N04",
+     "x": 200,
+     "y": 20,
+     "type": "facing",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N05",
+     "x": 200,
+     "y": 40,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N06",
+     "x": 120,
+     "y": 40,
+     "type": "facing",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N07",
+     "x": 82,
+     "y": 40,
+     "type": "facing",
+     "concave": false,
+     "pairKind": "landmark"
+    },
+    {
+     "id": "N08",
+     "x": 0,
+     "y": 40,
+     "type": "facing",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N09",
+     "x": 0,
+     "y": 20,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N10",
+     "x": 80,
+     "y": 20,
+     "type": "corner",
+     "concave": true,
+     "pairKind": null
+    }
+   ],
+   "edges": [
+    {
+     "a": "N01",
+     "b": "N02",
+     "type": "wall"
+    },
+    {
+     "a": "N02",
+     "b": "N03",
+     "type": "wall"
+    },
+    {
+     "a": "N03",
+     "b": "N04",
+     "type": "wall"
+    },
+    {
+     "a": "N04",
+     "b": "N05",
+     "type": "wall"
+    },
+    {
+     "a": "N05",
+     "b": "N06",
+     "type": "wall"
+    },
+    {
+     "a": "N06",
+     "b": "N07",
+     "type": "wall"
+    },
+    {
+     "a": "N07",
+     "b": "N08",
+     "type": "wall"
+    },
+    {
+     "a": "N08",
+     "b": "N09",
+     "type": "wall"
+    },
+    {
+     "a": "N09",
+     "b": "N10",
+     "type": "wall"
+    },
+    {
+     "a": "N10",
+     "b": "N01",
+     "type": "wall"
+    },
+    {
+     "a": "N01",
+     "b": "N07",
+     "type": "cross"
+    },
+    {
+     "a": "N02",
+     "b": "N01",
+     "type": "cross"
+    },
+    {
+     "a": "N03",
+     "b": "N06",
+     "type": "cross"
+    },
+    {
+     "a": "N09",
+     "b": "N08",
+     "type": "cross"
+    },
+    {
+     "a": "N10",
+     "b": "N04",
+     "type": "cross"
+    }
+   ]
+  },
+  {
+   "name": "room_corridor_door",
+   "w": 200,
+   "h": 60,
+   "rects": [
+    [
+     10,
+     0,
+     150,
+     30
+    ],
+    [
+     0,
+     35,
+     200,
+     55
+    ],
+    [
+     20,
+     30,
+     80,
+     35
+    ]
+   ],
+   "entrances": [
+    {
+     "x": 22,
+     "y": 28,
+     "kind": "landmark"
+    }
+   ],
+   "crossingMaxPx": null,
+   "nodes": [
+    {
+     "id": "N01",
+     "x": 10,
+     "y": 0,
+     "type": "facing",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N02",
+     "x": 20,
+     "y": 0,
+     "type": "facing",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N03",
+     "x": 150,
+     "y": 0,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N04",
+     "x": 150,
+     "y": 30,
+     "type": "facing",
+     "concave": false,
+     "pairKind": "landmark"
+    },
+    {
+     "id": "N05",
+     "x": 80,
+     "y": 30,
+     "type": "corner",
+     "concave": true,
+     "pairKind": null
+    },
+    {
+     "id": "N06",
+     "x": 80,
+     "y": 35,
+     "type": "corner",
+     "concave": true,
+     "pairKind": null
+    },
+    {
+     "id": "N07",
+     "x": 200,
+     "y": 35,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N08",
+     "x": 200,
+     "y": 55,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N09",
+     "x": 80,
+     "y": 55,
+     "type": "facing",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N10",
+     "x": 0,
+     "y": 55,
+     "type": "facing",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N11",
+     "x": 0,
+     "y": 35,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N12",
+     "x": 20,
+     "y": 35,
+     "type": "landmark",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N13",
+     "x": 20,
+     "y": 30,
+     "type": "corner",
+     "concave": true,
+     "pairKind": null
+    },
+    {
+     "id": "N14",
+     "x": 10,
+     "y": 30,
+     "type": "facing",
+     "concave": false,
+     "pairKind": null
+    }
+   ],
+   "edges": [
+    {
+     "a": "N01",
+     "b": "N02",
+     "type": "wall"
+    },
+    {
+     "a": "N02",
+     "b": "N03",
+     "type": "wall"
+    },
+    {
+     "a": "N03",
+     "b": "N04",
+     "type": "wall"
+    },
+    {
+     "a": "N04",
+     "b": "N05",
+     "type": "wall"
+    },
+    {
+     "a": "N05",
+     "b": "N06",
+     "type": "wall"
+    },
+    {
+     "a": "N06",
+     "b": "N07",
+     "type": "wall"
+    },
+    {
+     "a": "N07",
+     "b": "N08",
+     "type": "wall"
+    },
+    {
+     "a": "N08",
+     "b": "N09",
+     "type": "wall"
+    },
+    {
+     "a": "N09",
+     "b": "N10",
+     "type": "wall"
+    },
+    {
+     "a": "N10",
+     "b": "N11",
+     "type": "wall"
+    },
+    {
+     "a": "N11",
+     "b": "N12",
+     "type": "wall"
+    },
+    {
+     "a": "N12",
+     "b": "N13",
+     "type": "wall"
+    },
+    {
+     "a": "N13",
+     "b": "N14",
+     "type": "wall"
+    },
+    {
+     "a": "N14",
+     "b": "N01",
+     "type": "wall"
+    },
+    {
+     "a": "N12",
+     "b": "N04",
+     "type": "cross"
+    },
+    {
+     "a": "N01",
+     "b": "N14",
+     "type": "cross"
+    },
+    {
+     "a": "N03",
+     "b": "N01",
+     "type": "cross"
+    },
+    {
+     "a": "N05",
+     "b": "N12",
+     "type": "cross"
+    },
+    {
+     "a": "N06",
+     "b": "N09",
+     "type": "cross"
+    },
+    {
+     "a": "N11",
+     "b": "N10",
+     "type": "cross"
+    },
+    {
+     "a": "N13",
+     "b": "N02",
+     "type": "cross"
+    }
+   ]
+  },
+  {
+   "name": "l_corridor",
+   "w": 80,
+   "h": 80,
+   "rects": [
+    [
+     0,
+     0,
+     10,
+     60
+    ],
+    [
+     0,
+     50,
+     60,
+     60
+    ]
+   ],
+   "entrances": [],
+   "crossingMaxPx": null,
+   "nodes": [
+    {
+     "id": "N01",
+     "x": 0,
+     "y": 0,
+     "type": "facing",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N02",
+     "x": 10,
+     "y": 0,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N03",
+     "x": 10,
+     "y": 50,
+     "type": "corner",
+     "concave": true,
+     "pairKind": null
+    },
+    {
+     "id": "N04",
+     "x": 60,
+     "y": 50,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N05",
+     "x": 60,
+     "y": 60,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N06",
+     "x": 10,
+     "y": 60,
+     "type": "facing",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N07",
+     "x": 0,
+     "y": 60,
+     "type": "facing",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N08",
+     "x": 0,
+     "y": 50,
+     "type": "facing",
+     "concave": false,
+     "pairKind": null
+    }
+   ],
+   "edges": [
+    {
+     "a": "N01",
+     "b": "N02",
+     "type": "wall"
+    },
+    {
+     "a": "N02",
+     "b": "N03",
+     "type": "wall"
+    },
+    {
+     "a": "N03",
+     "b": "N04",
+     "type": "wall"
+    },
+    {
+     "a": "N04",
+     "b": "N05",
+     "type": "wall"
+    },
+    {
+     "a": "N05",
+     "b": "N06",
+     "type": "wall"
+    },
+    {
+     "a": "N06",
+     "b": "N07",
+     "type": "wall"
+    },
+    {
+     "a": "N07",
+     "b": "N08",
+     "type": "wall"
+    },
+    {
+     "a": "N08",
+     "b": "N01",
+     "type": "wall"
+    },
+    {
+     "a": "N01",
+     "b": "N07",
+     "type": "cross"
+    },
+    {
+     "a": "N02",
+     "b": "N01",
+     "type": "cross"
+    },
+    {
+     "a": "N03",
+     "b": "N06",
+     "type": "cross"
+    },
+    {
+     "a": "N04",
+     "b": "N08",
+     "type": "cross"
+    }
+   ]
+  },
+  {
+   "name": "wide_room",
+   "w": 300,
+   "h": 300,
+   "rects": [
+    [
+     5,
+     5,
+     295,
+     295
+    ]
+   ],
+   "entrances": [],
+   "crossingMaxPx": null,
+   "nodes": [
+    {
+     "id": "N01",
+     "x": 5,
+     "y": 5,
+     "type": "facing",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N02",
+     "x": 295,
+     "y": 5,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N03",
+     "x": 295,
+     "y": 295,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N04",
+     "x": 5,
+     "y": 295,
+     "type": "facing",
+     "concave": false,
+     "pairKind": null
+    }
+   ],
+   "edges": [
+    {
+     "a": "N01",
+     "b": "N02",
+     "type": "wall"
+    },
+    {
+     "a": "N02",
+     "b": "N03",
+     "type": "wall"
+    },
+    {
+     "a": "N03",
+     "b": "N04",
+     "type": "wall"
+    },
+    {
+     "a": "N04",
+     "b": "N01",
+     "type": "wall"
+    }
+   ]
+  },
+  {
+   "name": "two_components",
+   "w": 120,
+   "h": 60,
+   "rects": [
+    [
+     0,
+     10,
+     40,
+     30
+    ],
+    [
+     70,
+     10,
+     110,
+     30
+    ]
+   ],
+   "entrances": [],
+   "crossingMaxPx": null,
+   "nodes": [
+    {
+     "id": "N01",
+     "x": 0,
+     "y": 10,
+     "type": "facing",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N02",
+     "x": 40,
+     "y": 10,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N03",
+     "x": 40,
+     "y": 30,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N04",
+     "x": 0,
+     "y": 30,
+     "type": "facing",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N05",
+     "x": 70,
+     "y": 10,
+     "type": "facing",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N06",
+     "x": 110,
+     "y": 10,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N07",
+     "x": 110,
+     "y": 30,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N08",
+     "x": 70,
+     "y": 30,
+     "type": "facing",
+     "concave": false,
+     "pairKind": null
+    }
+   ],
+   "edges": [
+    {
+     "a": "N01",
+     "b": "N02",
+     "type": "wall"
+    },
+    {
+     "a": "N02",
+     "b": "N03",
+     "type": "wall"
+    },
+    {
+     "a": "N03",
+     "b": "N04",
+     "type": "wall"
+    },
+    {
+     "a": "N04",
+     "b": "N01",
+     "type": "wall"
+    },
+    {
+     "a": "N01",
+     "b": "N04",
+     "type": "cross"
+    },
+    {
+     "a": "N02",
+     "b": "N01",
+     "type": "cross"
+    },
+    {
+     "a": "N05",
+     "b": "N06",
+     "type": "wall"
+    },
+    {
+     "a": "N06",
+     "b": "N07",
+     "type": "wall"
+    },
+    {
+     "a": "N07",
+     "b": "N08",
+     "type": "wall"
+    },
+    {
+     "a": "N08",
+     "b": "N05",
+     "type": "wall"
+    },
+    {
+     "a": "N05",
+     "b": "N08",
+     "type": "cross"
+    },
+    {
+     "a": "N06",
+     "b": "N05",
+     "type": "cross"
+    }
+   ]
+  },
+  {
+   "name": "tiny_blob_dropped",
+   "w": 60,
+   "h": 60,
+   "rects": [
+    [
+     0,
+     20,
+     60,
+     40
+    ],
+    [
+     2,
+     2,
+     5,
+     5
+    ]
+   ],
+   "entrances": [],
+   "crossingMaxPx": null,
+   "nodes": [
+    {
+     "id": "N01",
+     "x": 0,
+     "y": 20,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N02",
+     "x": 60,
+     "y": 20,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N03",
+     "x": 60,
+     "y": 40,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N04",
+     "x": 0,
+     "y": 40,
+     "type": "facing",
+     "concave": false,
+     "pairKind": null
+    }
+   ],
+   "edges": [
+    {
+     "a": "N01",
+     "b": "N02",
+     "type": "wall"
+    },
+    {
+     "a": "N02",
+     "b": "N03",
+     "type": "wall"
+    },
+    {
+     "a": "N03",
+     "b": "N04",
+     "type": "wall"
+    },
+    {
+     "a": "N04",
+     "b": "N01",
+     "type": "wall"
+    },
+    {
+     "a": "N01",
+     "b": "N04",
+     "type": "cross"
+    }
+   ]
+  },
+  {
+   "name": "two_entrances",
+   "w": 200,
+   "h": 80,
+   "rects": [
+    [
+     0,
+     30,
+     200,
+     50
+    ],
+    [
+     40,
+     0,
+     80,
+     30
+    ],
+    [
+     120,
+     50,
+     160,
+     80
+    ]
+   ],
+   "entrances": [
+    {
+     "x": 45,
+     "y": 5,
+     "kind": "landmark"
+    },
+    {
+     "x": 155,
+     "y": 75,
+     "kind": "connector"
+    }
+   ],
+   "crossingMaxPx": null,
+   "nodes": [
+    {
+     "id": "N01",
+     "x": 40,
+     "y": 0,
+     "type": "landmark",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N02",
+     "x": 80,
+     "y": 0,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N03",
+     "x": 80,
+     "y": 30,
+     "type": "corner",
+     "concave": true,
+     "pairKind": null
+    },
+    {
+     "id": "N04",
+     "x": 120,
+     "y": 30,
+     "type": "facing",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N05",
+     "x": 200,
+     "y": 30,
+     "type": "facing",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N06",
+     "x": 200,
+     "y": 50,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N07",
+     "x": 160,
+     "y": 50,
+     "type": "corner",
+     "concave": true,
+     "pairKind": null
+    },
+    {
+     "id": "N08",
+     "x": 160,
+     "y": 80,
+     "type": "connector",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N09",
+     "x": 120,
+     "y": 80,
+     "type": "facing",
+     "concave": false,
+     "pairKind": "connector"
+    },
+    {
+     "id": "N10",
+     "x": 120,
+     "y": 50,
+     "type": "facing",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N11",
+     "x": 80,
+     "y": 50,
+     "type": "facing",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N12",
+     "x": 45,
+     "y": 50,
+     "type": "facing",
+     "concave": false,
+     "pairKind": "landmark"
+    },
+    {
+     "id": "N13",
+     "x": 0,
+     "y": 50,
+     "type": "facing",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N14",
+     "x": 0,
+     "y": 30,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N15",
+     "x": 40,
+     "y": 30,
+     "type": "corner",
+     "concave": true,
+     "pairKind": null
+    }
+   ],
+   "edges": [
+    {
+     "a": "N01",
+     "b": "N02",
+     "type": "wall"
+    },
+    {
+     "a": "N02",
+     "b": "N03",
+     "type": "wall"
+    },
+    {
+     "a": "N03",
+     "b": "N04",
+     "type": "wall"
+    },
+    {
+     "a": "N04",
+     "b": "N05",
+     "type": "wall"
+    },
+    {
+     "a": "N05",
+     "b": "N06",
+     "type": "wall"
+    },
+    {
+     "a": "N06",
+     "b": "N07",
+     "type": "wall"
+    },
+    {
+     "a": "N07",
+     "b": "N08",
+     "type": "wall"
+    },
+    {
+     "a": "N08",
+     "b": "N09",
+     "type": "wall"
+    },
+    {
+     "a": "N09",
+     "b": "N10",
+     "type": "wall"
+    },
+    {
+     "a": "N10",
+     "b": "N11",
+     "type": "wall"
+    },
+    {
+     "a": "N11",
+     "b": "N12",
+     "type": "wall"
+    },
+    {
+     "a": "N12",
+     "b": "N13",
+     "type": "wall"
+    },
+    {
+     "a": "N13",
+     "b": "N14",
+     "type": "wall"
+    },
+    {
+     "a": "N14",
+     "b": "N15",
+     "type": "wall"
+    },
+    {
+     "a": "N15",
+     "b": "N01",
+     "type": "wall"
+    },
+    {
+     "a": "N01",
+     "b": "N12",
+     "type": "cross"
+    },
+    {
+     "a": "N08",
+     "b": "N09",
+     "type": "cross"
+    },
+    {
+     "a": "N02",
+     "b": "N01",
+     "type": "cross"
+    },
+    {
+     "a": "N03",
+     "b": "N11",
+     "type": "cross"
+    },
+    {
+     "a": "N07",
+     "b": "N10",
+     "type": "cross"
+    },
+    {
+     "a": "N10",
+     "b": "N04",
+     "type": "cross"
+    },
+    {
+     "a": "N14",
+     "b": "N13",
+     "type": "cross"
+    },
+    {
+     "a": "N15",
+     "b": "N05",
+     "type": "cross"
+    }
+   ]
+  },
+  {
+   "name": "entrance_too_far",
+   "w": 100,
+   "h": 100,
+   "rects": [
+    [
+     0,
+     0,
+     20,
+     20
+    ]
+   ],
+   "entrances": [
+    {
+     "x": 95,
+     "y": 95,
+     "kind": "landmark"
+    }
+   ],
+   "crossingMaxPx": null,
+   "nodes": [
+    {
+     "id": "N01",
+     "x": 0,
+     "y": 0,
+     "type": "facing",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N02",
+     "x": 20,
+     "y": 0,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N03",
+     "x": 20,
+     "y": 20,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N04",
+     "x": 0,
+     "y": 20,
+     "type": "facing",
+     "concave": false,
+     "pairKind": null
+    }
+   ],
+   "edges": [
+    {
+     "a": "N01",
+     "b": "N02",
+     "type": "wall"
+    },
+    {
+     "a": "N02",
+     "b": "N03",
+     "type": "wall"
+    },
+    {
+     "a": "N03",
+     "b": "N04",
+     "type": "wall"
+    },
+    {
+     "a": "N04",
+     "b": "N01",
+     "type": "wall"
+    },
+    {
+     "a": "N01",
+     "b": "N04",
+     "type": "cross"
+    },
+    {
+     "a": "N02",
+     "b": "N01",
+     "type": "cross"
+    }
+   ]
+  },
+  {
+   "name": "narrow_crossing_limit",
+   "w": 200,
+   "h": 120,
+   "rects": [
+    [
+     0,
+     0,
+     200,
+     120
+    ]
+   ],
+   "entrances": [],
+   "crossingMaxPx": 50,
+   "nodes": [
+    {
+     "id": "N01",
+     "x": 0,
+     "y": 0,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N02",
+     "x": 200,
+     "y": 0,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N03",
+     "x": 200,
+     "y": 120,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N04",
+     "x": 0,
+     "y": 120,
+     "type": "facing",
+     "concave": false,
+     "pairKind": null
+    }
+   ],
+   "edges": [
+    {
+     "a": "N01",
+     "b": "N02",
+     "type": "wall"
+    },
+    {
+     "a": "N02",
+     "b": "N03",
+     "type": "wall"
+    },
+    {
+     "a": "N03",
+     "b": "N04",
+     "type": "wall"
+    },
+    {
+     "a": "N04",
+     "b": "N01",
+     "type": "wall"
+    }
+   ]
+  }
+ ],
+ "pathfind": [
+  {
+   "name": "straight_wall",
+   "nodes": [
+    [
+     "A",
+     0,
+     0
+    ],
+    [
+     "B",
+     10,
+     0
+    ],
+    [
+     "C",
+     20,
+     0
+    ]
+   ],
+   "edges": [
+    [
+     "A",
+     "B",
+     "wall"
+    ],
+    [
+     "B",
+     "C",
+     "wall"
+    ]
+   ],
+   "start": "A",
+   "end": "C",
+   "penalty": 0,
+   "result": {
+    "path": [
+     "A",
+     "B",
+     "C"
+    ],
+    "distancePx": 20
+   }
+  },
+  {
+   "name": "cross_wins",
+   "nodes": [
+    [
+     "A",
+     0,
+     0
+    ],
+    [
+     "M",
+     0,
+     100
+    ],
+    [
+     "B",
+     5,
+     0
+    ]
+   ],
+   "edges": [
+    [
+     "A",
+     "M",
+     "wall"
+    ],
+    [
+     "M",
+     "B",
+     "wall"
+    ],
+    [
+     "A",
+     "B",
+     "cross"
+    ]
+   ],
+   "start": "A",
+   "end": "B",
+   "penalty": 0,
+   "result": {
+    "path": [
+     "A",
+     "B"
+    ],
+    "distancePx": 5
+   }
+  },
+  {
+   "name": "penalty_wins",
+   "nodes": [
+    [
+     "A",
+     0,
+     0
+    ],
+    [
+     "M",
+     10,
+     0
+    ],
+    [
+     "B",
+     20,
+     0
+    ]
+   ],
+   "edges": [
+    [
+     "A",
+     "M",
+     "wall"
+    ],
+    [
+     "M",
+     "B",
+     "wall"
+    ],
+    [
+     "A",
+     "B",
+     "cross"
+    ]
+   ],
+   "start": "A",
+   "end": "B",
+   "penalty": 50,
+   "result": {
+    "path": [
+     "A",
+     "M",
+     "B"
+    ],
+    "distancePx": 20
+   }
+  },
+  {
+   "name": "disconnected",
+   "nodes": [
+    [
+     "A",
+     0,
+     0
+    ],
+    [
+     "B",
+     10,
+     0
+    ]
+   ],
+   "edges": [],
+   "start": "A",
+   "end": "B",
+   "penalty": 0,
+   "result": null
+  },
+  {
+   "name": "same_node",
+   "nodes": [
+    [
+     "A",
+     0,
+     0
+    ]
+   ],
+   "edges": [],
+   "start": "A",
+   "end": "A",
+   "penalty": 0,
+   "result": {
+    "path": [
+     "A"
+    ],
+    "distancePx": 0
+   }
+  },
+  {
+   "name": "cross_reverse",
+   "nodes": [
+    [
+     "A",
+     0,
+     0
+    ],
+    [
+     "B",
+     5,
+     0
+    ]
+   ],
+   "edges": [
+    [
+     "B",
+     "A",
+     "cross"
+    ]
+   ],
+   "start": "A",
+   "end": "B",
+   "penalty": 0,
+   "result": {
+    "path": [
+     "A",
+     "B"
+    ],
+    "distancePx": 5
+   }
+  },
+  {
+   "name": "penalty_boundary_equal",
+   "nodes": [
+    [
+     "A",
+     0,
+     0
+    ],
+    [
+     "M",
+     10,
+     0
+    ],
+    [
+     "B",
+     20,
+     0
+    ]
+   ],
+   "edges": [
+    [
+     "A",
+     "M",
+     "wall"
+    ],
+    [
+     "M",
+     "B",
+     "wall"
+    ],
+    [
+     "A",
+     "B",
+     "cross"
+    ]
+   ],
+   "start": "A",
+   "end": "B",
+   "penalty": 0,
+   "result": {
+    "path": [
+     "A",
+     "B"
+    ],
+    "distancePx": 20
+   }
+  }
+ ],
+ "realFloor": {
+  "source": "map-tool/static/mappin_project.json",
+  "w": 2372,
+  "h": 1790,
+  "crossingMaxPx": 241.93548387096774,
+  "entrances": [
+   {
+    "x": 94,
+    "y": 1130,
+    "kind": "landmark"
+   },
+   {
+    "x": 233,
+    "y": 1094,
+    "kind": "landmark"
+   },
+   {
+    "x": 1692,
+    "y": 1412,
+    "kind": "landmark"
+   },
+   {
+    "x": 1769,
+    "y": 1420,
+    "kind": "landmark"
+   },
+   {
+    "x": 260,
+    "y": 1371,
+    "kind": "landmark"
+   },
+   {
+    "x": 188,
+    "y": 1456,
+    "kind": "landmark"
+   },
+   {
+    "x": 546,
+    "y": 1453,
+    "kind": "landmark"
+   },
+   {
+    "x": 680,
+    "y": 1354,
+    "kind": "landmark"
+   },
+   {
+    "x": 673,
+    "y": 1448,
+    "kind": "landmark"
+   },
+   {
+    "x": 886,
+    "y": 1358,
+    "kind": "landmark"
+   },
+   {
+    "x": 888,
+    "y": 1450,
+    "kind": "landmark"
+   },
+   {
+    "x": 1170,
+    "y": 1321,
+    "kind": "landmark"
+   },
+   {
+    "x": 1286,
+    "y": 1327,
+    "kind": "landmark"
+   },
+   {
+    "x": 1100,
+    "y": 1450,
+    "kind": "landmark"
+   },
+   {
+    "x": 1493,
+    "y": 1440,
+    "kind": "landmark"
+   },
+   {
+    "x": 1234,
+    "y": 1537,
+    "kind": "landmark"
+   },
+   {
+    "x": 1412,
+    "y": 1538,
+    "kind": "landmark"
+   },
+   {
+    "x": 1526,
+    "y": 1537,
+    "kind": "landmark"
+   },
+   {
+    "x": 1667,
+    "y": 1533,
+    "kind": "landmark"
+   },
+   {
+    "x": 1855,
+    "y": 1536,
+    "kind": "landmark"
+   },
+   {
+    "x": 1932,
+    "y": 1442,
+    "kind": "landmark"
+   },
+   {
+    "x": 2157,
+    "y": 1455,
+    "kind": "landmark"
+   },
+   {
+    "x": 2148,
+    "y": 1531,
+    "kind": "landmark"
+   },
+   {
+    "x": 588,
+    "y": 1045,
+    "kind": "landmark"
+   }
+  ],
+  "nodes": [
+   {
+    "id": "N01",
+    "x": 357,
+    "y": 1006,
+    "type": "corner",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N02",
+    "x": 369.63551093492447,
+    "y": 1006,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N03",
+    "x": 575,
+    "y": 1023,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N04",
+    "x": 575,
+    "y": 1045,
+    "type": "landmark",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N05",
+    "x": 575,
+    "y": 1073.0623660990113,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N06",
+    "x": 575,
+    "y": 1120.0117729471208,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N07",
+    "x": 575,
+    "y": 1150,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N08",
+    "x": 575,
+    "y": 1250,
+    "type": "corner",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N09",
+    "x": 444,
+    "y": 1251,
+    "type": "corner",
+    "concave": true,
+    "pairKind": null
+   },
+   {
+    "id": "N10",
+    "x": 444,
+    "y": 1361,
+    "type": "corner",
+    "concave": true,
+    "pairKind": null
+   },
+   {
+    "id": "N11",
+    "x": 546,
+    "y": 1361,
+    "type": "facing",
+    "concave": false,
+    "pairKind": "landmark"
+   },
+   {
+    "id": "N12",
+    "x": 574,
+    "y": 1361,
+    "type": "corner",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N13",
+    "x": 575,
+    "y": 1372,
+    "type": "corner",
+    "concave": true,
+    "pairKind": null
+   },
+   {
+    "id": "N14",
+    "x": 581,
+    "y": 1374,
+    "type": "corner",
+    "concave": true,
+    "pairKind": null
+   },
+   {
+    "id": "N15",
+    "x": 673,
+    "y": 1374,
+    "type": "facing",
+    "concave": false,
+    "pairKind": "landmark"
+   },
+   {
+    "id": "N16",
+    "x": 680,
+    "y": 1374,
+    "type": "landmark",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N17",
+    "x": 886,
+    "y": 1374,
+    "type": "landmark",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N18",
+    "x": 1100,
+    "y": 1374,
+    "type": "facing",
+    "concave": false,
+    "pairKind": "landmark"
+   },
+   {
+    "id": "N19",
+    "x": 1204,
+    "y": 1374,
+    "type": "corner",
+    "concave": true,
+    "pairKind": null
+   },
+   {
+    "id": "N20",
+    "x": 1206,
+    "y": 1327.475329832489,
+    "type": "facing",
+    "concave": false,
+    "pairKind": "landmark"
+   },
+   {
+    "id": "N21",
+    "x": 1206,
+    "y": 1321,
+    "type": "landmark",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N22",
+    "x": 1206,
+    "y": 1304,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N23",
+    "x": 1233.5664293708671,
+    "y": 1303,
+    "type": "facing",
+    "concave": false,
+    "pairKind": "landmark"
+   },
+   {
+    "id": "N24",
+    "x": 1268,
+    "y": 1303,
+    "type": "corner",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N25",
+    "x": 1269,
+    "y": 1323.8131319872787,
+    "type": "landmark",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N26",
+    "x": 1269,
+    "y": 1375.8563853034289,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N27",
+    "x": 1269,
+    "y": 1389.4537841922665,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N28",
+    "x": 1269,
+    "y": 1401,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N29",
+    "x": 1269,
+    "y": 1471,
+    "type": "corner",
+    "concave": true,
+    "pairKind": null
+   },
+   {
+    "id": "N30",
+    "x": 1411.8765103961175,
+    "y": 1471,
+    "type": "facing",
+    "concave": false,
+    "pairKind": "landmark"
+   },
+   {
+    "id": "N31",
+    "x": 1493,
+    "y": 1471,
+    "type": "landmark",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N32",
+    "x": 1525.8779762644888,
+    "y": 1471,
+    "type": "facing",
+    "concave": false,
+    "pairKind": "landmark"
+   },
+   {
+    "id": "N33",
+    "x": 1610,
+    "y": 1471,
+    "type": "corner",
+    "concave": true,
+    "pairKind": null
+   },
+   {
+    "id": "N34",
+    "x": 1610,
+    "y": 1412,
+    "type": "facing",
+    "concave": false,
+    "pairKind": "landmark"
+   },
+   {
+    "id": "N35",
+    "x": 1610,
+    "y": 1384,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N36",
+    "x": 1611,
+    "y": 1342,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N37",
+    "x": 1666.644930468641,
+    "y": 1342,
+    "type": "facing",
+    "concave": false,
+    "pairKind": "landmark"
+   },
+   {
+    "id": "N38",
+    "x": 1733,
+    "y": 1342,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N39",
+    "x": 1733,
+    "y": 1383,
+    "type": "corner",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N40",
+    "x": 1673,
+    "y": 1384,
+    "type": "corner",
+    "concave": true,
+    "pairKind": null
+   },
+   {
+    "id": "N41",
+    "x": 1673,
+    "y": 1412,
+    "type": "landmark",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N42",
+    "x": 1673,
+    "y": 1471.4883574199225,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N43",
+    "x": 1673,
+    "y": 1478,
+    "type": "corner",
+    "concave": true,
+    "pairKind": null
+   },
+   {
+    "id": "N44",
+    "x": 1737,
+    "y": 1478,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N45",
+    "x": 1738,
+    "y": 1437,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N46",
+    "x": 1769,
+    "y": 1437,
+    "type": "landmark",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N47",
+    "x": 1811,
+    "y": 1437,
+    "type": "corner",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N48",
+    "x": 1813,
+    "y": 1476,
+    "type": "corner",
+    "concave": true,
+    "pairKind": null
+   },
+   {
+    "id": "N49",
+    "x": 1854.8898607207684,
+    "y": 1476,
+    "type": "facing",
+    "concave": false,
+    "pairKind": "landmark"
+   },
+   {
+    "id": "N50",
+    "x": 1932,
+    "y": 1476,
+    "type": "landmark",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N51",
+    "x": 2147.8981488478494,
+    "y": 1476,
+    "type": "facing",
+    "concave": false,
+    "pairKind": "landmark"
+   },
+   {
+    "id": "N52",
+    "x": 2157,
+    "y": 1476,
+    "type": "landmark",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N53",
+    "x": 2285,
+    "y": 1476,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N54",
+    "x": 2285,
+    "y": 1491.361879865217,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N55",
+    "x": 2285,
+    "y": 1515,
+    "type": "corner",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N56",
+    "x": 2157,
+    "y": 1517,
+    "type": "facing",
+    "concave": false,
+    "pairKind": "landmark"
+   },
+   {
+    "id": "N57",
+    "x": 2148,
+    "y": 1517,
+    "type": "landmark",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N58",
+    "x": 1932,
+    "y": 1517,
+    "type": "facing",
+    "concave": false,
+    "pairKind": "landmark"
+   },
+   {
+    "id": "N59",
+    "x": 1855,
+    "y": 1517,
+    "type": "landmark",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N60",
+    "x": 1813,
+    "y": 1517,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N61",
+    "x": 1769,
+    "y": 1517,
+    "type": "facing",
+    "concave": false,
+    "pairKind": "landmark"
+   },
+   {
+    "id": "N62",
+    "x": 1738,
+    "y": 1517,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N63",
+    "x": 1667,
+    "y": 1517,
+    "type": "landmark",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N64",
+    "x": 1611,
+    "y": 1517,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N65",
+    "x": 1526,
+    "y": 1517,
+    "type": "landmark",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N66",
+    "x": 1493,
+    "y": 1517,
+    "type": "facing",
+    "concave": false,
+    "pairKind": "landmark"
+   },
+   {
+    "id": "N67",
+    "x": 1412,
+    "y": 1517,
+    "type": "landmark",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N68",
+    "x": 1269,
+    "y": 1517,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N69",
+    "x": 1234,
+    "y": 1517,
+    "type": "landmark",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N70",
+    "x": 1210,
+    "y": 1517,
+    "type": "corner",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N71",
+    "x": 1208,
+    "y": 1429,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N72",
+    "x": 1100,
+    "y": 1429,
+    "type": "landmark",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N73",
+    "x": 886,
+    "y": 1429,
+    "type": "landmark",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N74",
+    "x": 680,
+    "y": 1429,
+    "type": "facing",
+    "concave": false,
+    "pairKind": "landmark"
+   },
+   {
+    "id": "N75",
+    "x": 673,
+    "y": 1429,
+    "type": "landmark",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N76",
+    "x": 581,
+    "y": 1429,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N77",
+    "x": 556.0263340389906,
+    "y": 1429,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N78",
+    "x": 546,
+    "y": 1429,
+    "type": "landmark",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N79",
+    "x": 444,
+    "y": 1429,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N80",
+    "x": 260,
+    "y": 1429,
+    "type": "facing",
+    "concave": false,
+    "pairKind": "landmark"
+   },
+   {
+    "id": "N81",
+    "x": 188,
+    "y": 1429,
+    "type": "landmark",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N82",
+    "x": 161,
+    "y": 1429,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N83",
+    "x": 160,
+    "y": 1401,
+    "type": "corner",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N84",
+    "x": 188,
+    "y": 1401,
+    "type": "facing",
+    "concave": false,
+    "pairKind": "landmark"
+   },
+   {
+    "id": "N85",
+    "x": 266,
+    "y": 1400,
+    "type": "landmark",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N86",
+    "x": 369,
+    "y": 1401,
+    "type": "corner",
+    "concave": true,
+    "pairKind": null
+   },
+   {
+    "id": "N87",
+    "x": 369,
+    "y": 1379.5598279386932,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N88",
+    "x": 369,
+    "y": 1251,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N89",
+    "x": 369,
+    "y": 1210,
+    "type": "corner",
+    "concave": true,
+    "pairKind": null
+   },
+   {
+    "id": "N90",
+    "x": 231.56561339484568,
+    "y": 1209,
+    "type": "facing",
+    "concave": false,
+    "pairKind": "landmark"
+   },
+   {
+    "id": "N91",
+    "x": 94,
+    "y": 1209,
+    "type": "facing",
+    "concave": false,
+    "pairKind": "landmark"
+   },
+   {
+    "id": "N92",
+    "x": 48,
+    "y": 1209,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N93",
+    "x": 48,
+    "y": 1150,
+    "type": "corner",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N94",
+    "x": 94,
+    "y": 1150,
+    "type": "landmark",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N95",
+    "x": 150,
+    "y": 1150,
+    "type": "corner",
+    "concave": true,
+    "pairKind": null
+   },
+   {
+    "id": "N96",
+    "x": 150,
+    "y": 1109,
+    "type": "corner",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N97",
+    "x": 233,
+    "y": 1111,
+    "type": "landmark",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N98",
+    "x": 309,
+    "y": 1111,
+    "type": "corner",
+    "concave": true,
+    "pairKind": null
+   },
+   {
+    "id": "N99",
+    "x": 311,
+    "y": 1052,
+    "type": "corner",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N100",
+    "x": 353,
+    "y": 1055,
+    "type": "corner",
+    "concave": true,
+    "pairKind": null
+   },
+   {
+    "id": "N101",
+    "x": 354,
+    "y": 1045,
+    "type": "facing",
+    "concave": false,
+    "pairKind": "landmark"
+   },
+   {
+    "id": "N102",
+    "x": 357,
+    "y": 1023,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   }
+  ],
+  "edges": [
+   {
+    "a": "N01",
+    "b": "N02",
+    "type": "wall"
+   },
+   {
+    "a": "N02",
+    "b": "N03",
+    "type": "wall"
+   },
+   {
+    "a": "N03",
+    "b": "N04",
+    "type": "wall"
+   },
+   {
+    "a": "N04",
+    "b": "N05",
+    "type": "wall"
+   },
+   {
+    "a": "N05",
+    "b": "N06",
+    "type": "wall"
+   },
+   {
+    "a": "N06",
+    "b": "N07",
+    "type": "wall"
+   },
+   {
+    "a": "N07",
+    "b": "N08",
+    "type": "wall"
+   },
+   {
+    "a": "N08",
+    "b": "N09",
+    "type": "wall"
+   },
+   {
+    "a": "N09",
+    "b": "N10",
+    "type": "wall"
+   },
+   {
+    "a": "N10",
+    "b": "N11",
+    "type": "wall"
+   },
+   {
+    "a": "N11",
+    "b": "N12",
+    "type": "wall"
+   },
+   {
+    "a": "N12",
+    "b": "N13",
+    "type": "wall"
+   },
+   {
+    "a": "N13",
+    "b": "N14",
+    "type": "wall"
+   },
+   {
+    "a": "N14",
+    "b": "N15",
+    "type": "wall"
+   },
+   {
+    "a": "N15",
+    "b": "N16",
+    "type": "wall"
+   },
+   {
+    "a": "N16",
+    "b": "N17",
+    "type": "wall"
+   },
+   {
+    "a": "N17",
+    "b": "N18",
+    "type": "wall"
+   },
+   {
+    "a": "N18",
+    "b": "N19",
+    "type": "wall"
+   },
+   {
+    "a": "N19",
+    "b": "N20",
+    "type": "wall"
+   },
+   {
+    "a": "N20",
+    "b": "N21",
+    "type": "wall"
+   },
+   {
+    "a": "N21",
+    "b": "N22",
+    "type": "wall"
+   },
+   {
+    "a": "N22",
+    "b": "N23",
+    "type": "wall"
+   },
+   {
+    "a": "N23",
+    "b": "N24",
+    "type": "wall"
+   },
+   {
+    "a": "N24",
+    "b": "N25",
+    "type": "wall"
+   },
+   {
+    "a": "N25",
+    "b": "N26",
+    "type": "wall"
+   },
+   {
+    "a": "N26",
+    "b": "N27",
+    "type": "wall"
+   },
+   {
+    "a": "N27",
+    "b": "N28",
+    "type": "wall"
+   },
+   {
+    "a": "N28",
+    "b": "N29",
+    "type": "wall"
+   },
+   {
+    "a": "N29",
+    "b": "N30",
+    "type": "wall"
+   },
+   {
+    "a": "N30",
+    "b": "N31",
+    "type": "wall"
+   },
+   {
+    "a": "N31",
+    "b": "N32",
+    "type": "wall"
+   },
+   {
+    "a": "N32",
+    "b": "N33",
+    "type": "wall"
+   },
+   {
+    "a": "N33",
+    "b": "N34",
+    "type": "wall"
+   },
+   {
+    "a": "N34",
+    "b": "N35",
+    "type": "wall"
+   },
+   {
+    "a": "N35",
+    "b": "N36",
+    "type": "wall"
+   },
+   {
+    "a": "N36",
+    "b": "N37",
+    "type": "wall"
+   },
+   {
+    "a": "N37",
+    "b": "N38",
+    "type": "wall"
+   },
+   {
+    "a": "N38",
+    "b": "N39",
+    "type": "wall"
+   },
+   {
+    "a": "N39",
+    "b": "N40",
+    "type": "wall"
+   },
+   {
+    "a": "N40",
+    "b": "N41",
+    "type": "wall"
+   },
+   {
+    "a": "N41",
+    "b": "N42",
+    "type": "wall"
+   },
+   {
+    "a": "N42",
+    "b": "N43",
+    "type": "wall"
+   },
+   {
+    "a": "N43",
+    "b": "N44",
+    "type": "wall"
+   },
+   {
+    "a": "N44",
+    "b": "N45",
+    "type": "wall"
+   },
+   {
+    "a": "N45",
+    "b": "N46",
+    "type": "wall"
+   },
+   {
+    "a": "N46",
+    "b": "N47",
+    "type": "wall"
+   },
+   {
+    "a": "N47",
+    "b": "N48",
+    "type": "wall"
+   },
+   {
+    "a": "N48",
+    "b": "N49",
+    "type": "wall"
+   },
+   {
+    "a": "N49",
+    "b": "N50",
+    "type": "wall"
+   },
+   {
+    "a": "N50",
+    "b": "N51",
+    "type": "wall"
+   },
+   {
+    "a": "N51",
+    "b": "N52",
+    "type": "wall"
+   },
+   {
+    "a": "N52",
+    "b": "N53",
+    "type": "wall"
+   },
+   {
+    "a": "N53",
+    "b": "N54",
+    "type": "wall"
+   },
+   {
+    "a": "N54",
+    "b": "N55",
+    "type": "wall"
+   },
+   {
+    "a": "N55",
+    "b": "N56",
+    "type": "wall"
+   },
+   {
+    "a": "N56",
+    "b": "N57",
+    "type": "wall"
+   },
+   {
+    "a": "N57",
+    "b": "N58",
+    "type": "wall"
+   },
+   {
+    "a": "N58",
+    "b": "N59",
+    "type": "wall"
+   },
+   {
+    "a": "N59",
+    "b": "N60",
+    "type": "wall"
+   },
+   {
+    "a": "N60",
+    "b": "N61",
+    "type": "wall"
+   },
+   {
+    "a": "N61",
+    "b": "N62",
+    "type": "wall"
+   },
+   {
+    "a": "N62",
+    "b": "N63",
+    "type": "wall"
+   },
+   {
+    "a": "N63",
+    "b": "N64",
+    "type": "wall"
+   },
+   {
+    "a": "N64",
+    "b": "N65",
+    "type": "wall"
+   },
+   {
+    "a": "N65",
+    "b": "N66",
+    "type": "wall"
+   },
+   {
+    "a": "N66",
+    "b": "N67",
+    "type": "wall"
+   },
+   {
+    "a": "N67",
+    "b": "N68",
+    "type": "wall"
+   },
+   {
+    "a": "N68",
+    "b": "N69",
+    "type": "wall"
+   },
+   {
+    "a": "N69",
+    "b": "N70",
+    "type": "wall"
+   },
+   {
+    "a": "N70",
+    "b": "N71",
+    "type": "wall"
+   },
+   {
+    "a": "N71",
+    "b": "N72",
+    "type": "wall"
+   },
+   {
+    "a": "N72",
+    "b": "N73",
+    "type": "wall"
+   },
+   {
+    "a": "N73",
+    "b": "N74",
+    "type": "wall"
+   },
+   {
+    "a": "N74",
+    "b": "N75",
+    "type": "wall"
+   },
+   {
+    "a": "N75",
+    "b": "N76",
+    "type": "wall"
+   },
+   {
+    "a": "N76",
+    "b": "N77",
+    "type": "wall"
+   },
+   {
+    "a": "N77",
+    "b": "N78",
+    "type": "wall"
+   },
+   {
+    "a": "N78",
+    "b": "N79",
+    "type": "wall"
+   },
+   {
+    "a": "N79",
+    "b": "N80",
+    "type": "wall"
+   },
+   {
+    "a": "N80",
+    "b": "N81",
+    "type": "wall"
+   },
+   {
+    "a": "N81",
+    "b": "N82",
+    "type": "wall"
+   },
+   {
+    "a": "N82",
+    "b": "N83",
+    "type": "wall"
+   },
+   {
+    "a": "N83",
+    "b": "N84",
+    "type": "wall"
+   },
+   {
+    "a": "N84",
+    "b": "N85",
+    "type": "wall"
+   },
+   {
+    "a": "N85",
+    "b": "N86",
+    "type": "wall"
+   },
+   {
+    "a": "N86",
+    "b": "N87",
+    "type": "wall"
+   },
+   {
+    "a": "N87",
+    "b": "N88",
+    "type": "wall"
+   },
+   {
+    "a": "N88",
+    "b": "N89",
+    "type": "wall"
+   },
+   {
+    "a": "N89",
+    "b": "N90",
+    "type": "wall"
+   },
+   {
+    "a": "N90",
+    "b": "N91",
+    "type": "wall"
+   },
+   {
+    "a": "N91",
+    "b": "N92",
+    "type": "wall"
+   },
+   {
+    "a": "N92",
+    "b": "N93",
+    "type": "wall"
+   },
+   {
+    "a": "N93",
+    "b": "N94",
+    "type": "wall"
+   },
+   {
+    "a": "N94",
+    "b": "N95",
+    "type": "wall"
+   },
+   {
+    "a": "N95",
+    "b": "N96",
+    "type": "wall"
+   },
+   {
+    "a": "N96",
+    "b": "N97",
+    "type": "wall"
+   },
+   {
+    "a": "N97",
+    "b": "N98",
+    "type": "wall"
+   },
+   {
+    "a": "N98",
+    "b": "N99",
+    "type": "wall"
+   },
+   {
+    "a": "N99",
+    "b": "N100",
+    "type": "wall"
+   },
+   {
+    "a": "N100",
+    "b": "N101",
+    "type": "wall"
+   },
+   {
+    "a": "N101",
+    "b": "N102",
+    "type": "wall"
+   },
+   {
+    "a": "N102",
+    "b": "N01",
+    "type": "wall"
+   },
+   {
+    "a": "N94",
+    "b": "N91",
+    "type": "cross"
+   },
+   {
+    "a": "N97",
+    "b": "N90",
+    "type": "cross"
+   },
+   {
+    "a": "N41",
+    "b": "N34",
+    "type": "cross"
+   },
+   {
+    "a": "N46",
+    "b": "N61",
+    "type": "cross"
+   },
+   {
+    "a": "N85",
+    "b": "N80",
+    "type": "cross"
+   },
+   {
+    "a": "N81",
+    "b": "N84",
+    "type": "cross"
+   },
+   {
+    "a": "N78",
+    "b": "N11",
+    "type": "cross"
+   },
+   {
+    "a": "N16",
+    "b": "N74",
+    "type": "cross"
+   },
+   {
+    "a": "N75",
+    "b": "N15",
+    "type": "cross"
+   },
+   {
+    "a": "N17",
+    "b": "N73",
+    "type": "cross"
+   },
+   {
+    "a": "N21",
+    "b": "N25",
+    "type": "cross"
+   },
+   {
+    "a": "N25",
+    "b": "N20",
+    "type": "cross"
+   },
+   {
+    "a": "N72",
+    "b": "N18",
+    "type": "cross"
+   },
+   {
+    "a": "N31",
+    "b": "N66",
+    "type": "cross"
+   },
+   {
+    "a": "N69",
+    "b": "N23",
+    "type": "cross"
+   },
+   {
+    "a": "N67",
+    "b": "N30",
+    "type": "cross"
+   },
+   {
+    "a": "N65",
+    "b": "N32",
+    "type": "cross"
+   },
+   {
+    "a": "N63",
+    "b": "N37",
+    "type": "cross"
+   },
+   {
+    "a": "N59",
+    "b": "N49",
+    "type": "cross"
+   },
+   {
+    "a": "N50",
+    "b": "N58",
+    "type": "cross"
+   },
+   {
+    "a": "N52",
+    "b": "N56",
+    "type": "cross"
+   },
+   {
+    "a": "N57",
+    "b": "N51",
+    "type": "cross"
+   },
+   {
+    "a": "N04",
+    "b": "N101",
+    "type": "cross"
+   },
+   {
+    "a": "N03",
+    "b": "N102",
+    "type": "cross"
+   },
+   {
+    "a": "N08",
+    "b": "N03",
+    "type": "cross"
+   },
+   {
+    "a": "N09",
+    "b": "N88",
+    "type": "cross"
+   },
+   {
+    "a": "N10",
+    "b": "N79",
+    "type": "cross"
+   },
+   {
+    "a": "N12",
+    "b": "N87",
+    "type": "cross"
+   },
+   {
+    "a": "N13",
+    "b": "N77",
+    "type": "cross"
+   },
+   {
+    "a": "N14",
+    "b": "N76",
+    "type": "cross"
+   },
+   {
+    "a": "N19",
+    "b": "N26",
+    "type": "cross"
+   },
+   {
+    "a": "N22",
+    "b": "N71",
+    "type": "cross"
+   },
+   {
+    "a": "N24",
+    "b": "N22",
+    "type": "cross"
+   },
+   {
+    "a": "N29",
+    "b": "N68",
+    "type": "cross"
+   },
+   {
+    "a": "N33",
+    "b": "N42",
+    "type": "cross"
+   },
+   {
+    "a": "N36",
+    "b": "N64",
+    "type": "cross"
+   },
+   {
+    "a": "N38",
+    "b": "N36",
+    "type": "cross"
+   },
+   {
+    "a": "N39",
+    "b": "N38",
+    "type": "cross"
+   },
+   {
+    "a": "N40",
+    "b": "N35",
+    "type": "cross"
+   },
+   {
+    "a": "N43",
+    "b": "N63",
+    "type": "cross"
+   },
+   {
+    "a": "N45",
+    "b": "N62",
+    "type": "cross"
+   },
+   {
+    "a": "N47",
+    "b": "N45",
+    "type": "cross"
+   },
+   {
+    "a": "N48",
+    "b": "N60",
+    "type": "cross"
+   },
+   {
+    "a": "N55",
+    "b": "N53",
+    "type": "cross"
+   },
+   {
+    "a": "N83",
+    "b": "N82",
+    "type": "cross"
+   },
+   {
+    "a": "N89",
+    "b": "N02",
+    "type": "cross"
+   },
+   {
+    "a": "N93",
+    "b": "N92",
+    "type": "cross"
+   },
+   {
+    "a": "N100",
+    "b": "N05",
+    "type": "cross"
+   }
+  ]
+ }
+}

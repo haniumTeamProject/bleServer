@@ -1,3 +1,4 @@
+import asyncio
 import json
 import time
 from pathlib import Path
@@ -5,6 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
+from app.ws import landmark_matcher, llm_matcher
 from app.ws.path_tracker import PathTracker
 from app.ws.rssi_filter import RssiFilterPipeline
 
@@ -20,6 +22,27 @@ _filters: dict[str, RssiFilterPipeline] = {}
 # 경로 진행 추적 — 비콘이 바뀌는 시점을 서버가 판단해서 폰에 음성 안내를 내려보내기 위한 것.
 # _filters와 마찬가지로 전역 하나라서 동시에 여러 명을 안내하지는 못함 (실측 도구 수준의 한계).
 _tracker = PathTracker()
+
+# 음성 목적지 매칭용 랜드마크 목록. 지도 프로젝트 파일에서 읽어온다.
+# 파일이 13MB라 매번 파싱하면 느려서 수정 시각으로 캐시한다.
+_landmarks: list[landmark_matcher.Landmark] = []
+_landmarks_mtime: float | None = None
+
+# 되물었을 때 사용자가 고를 후보.
+#
+# 이건 **연결마다 따로** 들고 있어야 한다. _filters·_tracker 는 실측 도구 수준의
+# 한계로 전역 하나지만, 되묻기는 성격이 다르다. 폰 A 에게 "계단 1번, 2번, 3번
+# 중에서" 하고 물어놓은 상태에서 폰 B 가 "두 번째"라고 하면, 전역이면 A 의 후보를
+# B 가 집어간다. 시연 때 폰 두 대만 붙여도 바로 터진다.
+#
+# 그래서 연결별 세션 dict 에 담고, _process_message 가 그걸 받아서 쓴다.
+# 세션을 안 넘기면(테스트 등) 그 호출만 쓰고 버리는 임시 세션을 만든다.
+_PENDING_KEY = "pending"
+_PENDING_AT_KEY = "pending_at"
+
+# 되묻고 나서 이 시간이 지나면 후보를 버린다. 사용자가 답을 안 하고 그냥 둔 채
+# 한참 뒤에 다른 말을 하면, 그건 되묻기 답변이 아니라 새 요청으로 봐야 한다.
+_PENDING_TTL_MS = 120_000
 
 
 _APP_DIR = Path(__file__).resolve().parent          # backend-python/app/ws
@@ -157,16 +180,58 @@ async def monitor_page() -> HTMLResponse:
     return HTMLResponse(html)
 
 
+def _is_slow_message(raw: str) -> bool:
+    """LLM 호출로 오래 걸릴 수 있는 메시지인지 싸게 판별한다.
+
+    문자열에 "destination" 이 없으면 파싱조차 안 한다. RSSI 는 초당 열 번씩
+    들어오므로 여기서 매번 json 을 두 번 파싱하면 그게 더 손해다.
+    """
+    if _DESTINATION_TYPE not in raw:
+        return False
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return False
+    return isinstance(data, dict) and data.get("type") == _DESTINATION_TYPE
+
+
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     _connections.add(websocket)
+    # 이 연결만의 상태 (되묻기 후보 등). 연결이 끊기면 같이 사라진다.
+    session: dict = {}
     print(f"Connected: {id(websocket)}")
+
+    # 목적지 요청을 순서대로 처리하기 위한 잠금. 해석이 백그라운드로 도는 동안
+    # 다음 요청이 들어오면 되묻기 상태가 엉키므로, 이 연결 안에서는 한 번에 하나만.
+    lock = asyncio.Lock()
+    tasks: set[asyncio.Task] = set()
 
     try:
         while True:
             raw = await websocket.receive_text()
-            payload, guides = _process_message(raw)
+
+            # 목적지 해석은 Ollama 응답을 기다리느라 몇 초가 걸린다.
+            #
+            # 이걸 읽기 루프 안에서 기다리면 — await 이든 아니든 — **그동안
+            # receive_text() 를 안 부른다.** 그러면 폰이 계속 올려보내는 RSSI 가
+            # 소켓에 쌓였다가, 해석이 끝나는 순간 한꺼번에 몰려 들어온다.
+            # 판정기는 그걸 "같은 순간에 온 수십 개"로 보게 되어 시간축이 무너진다.
+            #
+            # (실제로 이 자리에 `await asyncio.to_thread(...)` 만 뒀다가
+            #  check_pipeline.py --load 에서 2.6초 끊김이 그대로 잡혔다.
+            #  await 은 다른 연결에게만 양보할 뿐, 이 연결의 읽기는 멈춘다.)
+            #
+            # 그래서 아예 **따로 떼어 보내고 루프는 곧장 다음 메시지를 읽는다.**
+            if _is_slow_message(raw):
+                task = asyncio.create_task(_handle_destination(websocket, raw, session, lock))
+                tasks.add(task)
+                task.add_done_callback(tasks.discard)
+                continue
+
+            # RSSI·측정 메시지는 빠르고 순서가 중요하므로 루프에서 그대로 처리한다.
+            payload, guides = _process_message(raw, session)
 
             # 기존 동작 유지: RSSI/측정 메시지는 "보낸 쪽 제외" 브로드캐스트
             await _broadcast(payload, exclude=websocket)
@@ -178,8 +243,45 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         pass
     finally:
+        for task in list(tasks):
+            task.cancel()
         _connections.discard(websocket)
         print(f"Disconnected: {id(websocket)}")
+
+
+async def _handle_destination(websocket: WebSocket, raw: str, session: dict,
+                              lock: asyncio.Lock) -> None:
+    """목적지 해석을 읽기 루프 밖에서 처리한다.
+
+    LLM 호출은 동기 함수라 스레드로 넘긴다. 그동안 읽기 루프는 계속 돌면서
+    RSSI 를 받아 중계하므로, 사용자가 걸어가며 말해도 위치 판정이 끊기지 않는다.
+    """
+    try:
+        async with lock:
+            _payload, guides = await asyncio.to_thread(_process_message, raw, session)
+
+        # 목적지 응답은 **물어본 폰에게만** 보낸다.
+        #
+        # 다른 안내(guide)는 전체에 뿌리는 게 맞지만 이건 다르다. 전체로 뿌리면
+        # 폰 A 에게 되물은 후보 목록을 폰 B 도 받아서, B 가 자기 질문의 답인 줄
+        # 알고 그 목록으로 되묻기 화면에 들어간다. 실제로 폰 두 대로 재보니
+        # B 가 "엘베"라고 물었는데 A 의 계단 후보를 받았다.
+        #
+        # 안내 음성도 마찬가지다 — 옆 사람 목적지가 내 이어폰에서 들린다.
+        for guide in guides:
+            await _send(websocket, json.dumps(guide, ensure_ascii=False))
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:          # 여기서 죽으면 조용히 사라지므로 반드시 남긴다
+        print(f"[목적지] 처리 중 오류: {e!r}")
+
+
+async def _send(conn: WebSocket, payload: str) -> None:
+    """한 연결에만 보낸다. 끊긴 연결이면 조용히 넘어간다."""
+    try:
+        await conn.send_text(payload)
+    except Exception:
+        pass
 
 
 async def _broadcast(payload: str, exclude: WebSocket | None = None) -> None:
@@ -278,6 +380,14 @@ def _process_guide(data: dict) -> str:
             mode=data.get("mode"),
             window_ms=data.get("windowMs"),
             segments=data.get("segments"),
+            min_gap=data.get("minGap"),
+            gap_window_ms=data.get("gapWindowMs"),
+            min_hold_ms=data.get("minHoldMs"),
+            require_trend=data.get("requireTrend"),
+            trigger_gap=data.get("triggerGap"),
+            confirm_delay_ms=data.get("confirmDelayMs"),
+            confirm_gap=data.get("confirmGap"),
+            confirm_trend=data.get("confirmTrend"),
         )
         print(f"[안내] 경로 설정: {result.get('path')} (활성={result.get('enabled')})")
         return json.dumps(result, ensure_ascii=False)
@@ -294,7 +404,139 @@ def _process_guide(data: dict) -> str:
     )
 
 
-def _process_message(raw: str) -> tuple[str, list[dict]]:
+# 음성 목적지 메시지 스펙
+#   폰 → 서버:
+#     { "type":"destination", "event":"resolve", "text":"화장실", "requestId":"..." }
+#     { "type":"destination", "event":"choose",  "text":"두 번째", "requestId":"..." }
+#     { "type":"destination", "event":"cancel" }
+#     { "type":"destination", "event":"list" }        ← 등록된 랜드마크 확인용
+#   서버 → 전체(폰 포함):
+#     { "type":"destination", "event":"resolved",  "landmark":{...},   "speech":"..." }
+#     { "type":"destination", "event":"ambiguous", "candidates":[...], "speech":"..." }
+#     { "type":"destination", "event":"notFound",  "suggestions":[...], "speech":"..." }
+#
+# 폰은 STT 결과 문자열만 보내고, 매칭은 전부 서버가 한다.
+# 별칭 사전이나 임계값을 고쳐도 앱을 다시 빌드할 필요가 없다.
+_DESTINATION_TYPE = "destination"
+
+
+def _load_landmark_list() -> list[landmark_matcher.Landmark]:
+    """지도 프로젝트 파일에서 랜드마크를 읽는다. 파일이 바뀌었을 때만 다시 파싱한다."""
+    global _landmarks, _landmarks_mtime
+
+    path = _map_tool_dir() / "static" / "mappin_project.json"
+    if not path.is_file():
+        return _landmarks
+
+    mtime = path.stat().st_mtime
+    if _landmarks and _landmarks_mtime == mtime:
+        return _landmarks
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"랜드마크 파일을 읽지 못했습니다: {e}")
+        return _landmarks
+
+    _landmarks = landmark_matcher.load_landmarks(data.get("landmarks") or [])
+    _landmarks_mtime = mtime
+    print(f"[목적지] 랜드마크 {len(_landmarks)}개 로드: {path}")
+    return _landmarks
+
+
+def _landmark_json(lm: landmark_matcher.Landmark) -> dict:
+    return {"id": lm.id, "name": lm.name, "x": lm.x, "y": lm.y}
+
+
+def _take_pending(session: dict) -> list[landmark_matcher.Landmark]:
+    """이 연결이 답을 기다리고 있는 후보. 오래됐으면 없는 것으로 친다."""
+    pending = session.get(_PENDING_KEY) or []
+    if not pending:
+        return []
+    age = int(time.time() * 1000) - int(session.get(_PENDING_AT_KEY) or 0)
+    if age > _PENDING_TTL_MS:
+        session[_PENDING_KEY] = []
+        print(f"[목적지] 되묻기 만료 ({age / 1000:.0f}초 무응답) — 새 요청으로 처리")
+        return []
+    return pending
+
+
+def _process_destination(data: dict, session: dict) -> tuple[str, list[dict]]:
+    """음성으로 말한 목적지를 랜드마크에 잇는다.
+
+    응답은 중계용이 아니라 안내용으로 돌려준다 — 요청을 보낸 폰이 바로
+    그 응답을 들어야 하는 대상이라, "보낸 쪽 제외" 브로드캐스트를 타면 안 된다.
+
+    **이 함수는 LLM 호출 때문에 오래 걸릴 수 있다.** 그래서 이벤트 루프가 아니라
+    별도 스레드에서 불린다(websocket_endpoint 참고). 여기서 만지는 상태는
+    인자로 받은 session 뿐이라 다른 연결과 섞이지 않는다.
+    """
+    event = data.get("event")
+    request_id = str(data.get("requestId") or "")
+    text = str(data.get("text") or "")
+    landmarks = _load_landmark_list()
+
+    def reply(result: landmark_matcher.MatchResult) -> tuple[str, list[dict]]:
+        msg: dict = {
+            "type": _DESTINATION_TYPE,
+            "event": result.status,          # resolved | ambiguous | notFound
+            "requestId": request_id,
+            "heard": text,
+            "speech": result.speech,
+            "source": result.source,         # llm | rule | llm→rule(사유)
+            "timestamp": int(time.time() * 1000),
+        }
+        if result.status == "resolved" and result.landmark:
+            msg["landmark"] = _landmark_json(result.landmark)
+            session[_PENDING_KEY] = []
+            print(f"[목적지] \"{text}\" → {result.landmark.name}  [{result.source}]")
+        elif result.status == "ambiguous":
+            msg["candidates"] = [_landmark_json(c) for c in result.candidates]
+            session[_PENDING_KEY] = list(result.candidates)
+            session[_PENDING_AT_KEY] = int(time.time() * 1000)
+            names = ", ".join(c.name for c in result.candidates)
+            print(f"[목적지] \"{text}\" → 후보 여러 개: {names}  [{result.source}]")
+        else:
+            msg["suggestions"] = [_landmark_json(c) for c in result.candidates]
+            session[_PENDING_KEY] = []
+            print(f"[목적지] \"{text}\" → 매칭 실패  [{result.source}]")
+        return json.dumps(msg, ensure_ascii=False), [msg]
+
+    if event == "resolve":
+        # 새 목적지를 말하면 이전 되묻기는 버린다
+        session[_PENDING_KEY] = []
+        # LLM으로 해석한다. 모델이 안 떠 있거나 응답이 이상하면
+        # llm_matcher가 알아서 규칙 엔진 결과로 넘어간다.
+        return reply(llm_matcher.resolve(text, landmarks))
+
+    if event == "choose":
+        pending = _take_pending(session)
+        if not pending:
+            # 되묻지도 않았는데 선택이 왔다 — 그냥 새 요청으로 처리한다
+            return reply(llm_matcher.resolve(text, landmarks))
+        # 대답 해석도 모델이 한다. 후보 목록과 대답을 주고 고르게 한다.
+        return reply(llm_matcher.choose(text, pending))
+
+    if event == "cancel":
+        session[_PENDING_KEY] = []
+        msg = {"type": _DESTINATION_TYPE, "event": "cancelled", "requestId": request_id,
+               "speech": "", "timestamp": int(time.time() * 1000)}
+        return json.dumps(msg, ensure_ascii=False), [msg]
+
+    if event == "list":
+        msg = {"type": _DESTINATION_TYPE, "event": "list", "requestId": request_id,
+               "landmarks": [_landmark_json(lm) for lm in landmarks],
+               "speech": "", "timestamp": int(time.time() * 1000)}
+        return json.dumps(msg, ensure_ascii=False), [msg]
+
+    print(f"알 수 없는 목적지 이벤트 무시: {event!r}")
+    return json.dumps(
+        {"type": _DESTINATION_TYPE, "event": "error", "reason": f"unknown event: {event}"},
+        ensure_ascii=False,
+    ), []
+
+
+def _process_message(raw: str, session: dict | None = None) -> tuple[str, list[dict]]:
     """수신 메시지를 처리해서 (중계할 JSON 문자열, 전체에 보낼 안내 메시지 목록)을 돌려준다.
 
     안내 메시지를 따로 돌려주는 이유: 일반 중계는 "보낸 쪽 제외"인데,
@@ -312,6 +554,9 @@ def _process_message(raw: str) -> tuple[str, list[dict]]:
 
     if isinstance(data, dict) and data.get("type") == _GUIDE_TYPE:
         return _process_guide(data), []
+
+    if isinstance(data, dict) and data.get("type") == _DESTINATION_TYPE:
+        return _process_destination(data, session if session is not None else {})
 
     try:
         filtered: dict = {"timestamp": data.get("timestamp", int(time.time() * 1000))}

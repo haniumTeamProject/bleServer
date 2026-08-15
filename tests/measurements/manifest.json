@@ -1,7 +1,6 @@
 {
-  "_설명": "위치 판정 파라미터를 고를 때 쓰는 실측 데이터셋. eval_tracker.py 가 이 파일을 읽는다.",
+  "_설명": "위치 판정 파라미터를 고를 때 쓰는 실측 데이터셋. eval_tracker.py 가 이 파일을 읽는다. 2026-08-10 실측분 9건을 추가했다(원본: /실측결과).",
   "_정답기준": "moving 데이터의 전환 시점은 '1초 구간마다 가장 센 비콘이 바뀐 순간'으로 자동 산출한다. 눈으로 확인한 기록이 아니라 근사치이므로, 앱의 '지점 표시' 버튼으로 실제 통과 시각을 남기면 그것으로 교체할 것.",
-
   "datasets": [
     {
       "file": "still_a_20260807T1036.csv",
@@ -25,7 +24,11 @@
       "설명": "비콘 1→2→3 을 한 방향으로 통과.",
       "비콘수": 3,
       "길이초": 21.5,
-      "path_order": ["ESP32-Beacon1-tx", "ESP32-Beacon2-tx", "ESP32-Beacon3-tx"],
+      "path_order": [
+        "ESP32-Beacon1-tx",
+        "ESP32-Beacon2-tx",
+        "ESP32-Beacon3-tx"
+      ],
       "기대": "전진 2회 (→2번, →3번)"
     },
     {
@@ -34,8 +37,134 @@
       "설명": "1→2→3→2→1→2→3→2→1 왕복 2회. 전진·후퇴가 모두 포함돼 후퇴 판정 검증에 유용.",
       "비콘수": 3,
       "길이초": 43.5,
-      "path_order": ["ESP32-Beacon1-tx", "ESP32-Beacon2-tx", "ESP32-Beacon3-tx"],
+      "path_order": [
+        "ESP32-Beacon1-tx",
+        "ESP32-Beacon2-tx",
+        "ESP32-Beacon3-tx"
+      ],
       "기대": "전환 8회 (전진 4, 후퇴 4)"
+    },
+    {
+      "file": "walk_b123_a_20260810T0307.csv",
+      "kind": "moving",
+      "설명": "비콘 1→2→3 짧게 통과 (8.4초)",
+      "비콘수": 3,
+      "길이초": 8.4,
+      "path_order": [
+        "ESP32-Beacon1-tx",
+        "ESP32-Beacon2-tx",
+        "ESP32-Beacon3-tx"
+      ],
+      "기대": "전환 2회 (ESP32-Beacon1-tx → ESP32-Beacon2-tx → ESP32-Beacon3-tx)"
+    },
+    {
+      "file": "walk_b32_20260810T0311.csv",
+      "kind": "moving",
+      "설명": "3→2 방향으로 통과 (9.3초). 역방향 자료.",
+      "비콘수": 3,
+      "길이초": 9.3,
+      "path_order": [
+        "ESP32-Beacon3-tx",
+        "ESP32-Beacon2-tx",
+        "ESP32-Beacon1-tx"
+      ],
+      "기대": "전환 1회 (ESP32-Beacon3-tx → ESP32-Beacon2-tx)"
+    },
+    {
+      "file": "walk_b123_b_20260810T0316.csv",
+      "kind": "moving",
+      "설명": "비콘 1→2→3 통과 (8.3초)",
+      "비콘수": 3,
+      "길이초": 8.3,
+      "path_order": [
+        "ESP32-Beacon1-tx",
+        "ESP32-Beacon2-tx",
+        "ESP32-Beacon3-tx"
+      ],
+      "기대": "전환 2회 (ESP32-Beacon1-tx → ESP32-Beacon2-tx → ESP32-Beacon3-tx)"
+    },
+    {
+      "file": "walk_b12_20260810T0318.csv",
+      "kind": "moving",
+      "설명": "1→2 까지만 통과 (5.8초). 가장 짧은 기록.",
+      "비콘수": 3,
+      "길이초": 5.8,
+      "path_order": [
+        "ESP32-Beacon1-tx",
+        "ESP32-Beacon2-tx",
+        "ESP32-Beacon3-tx"
+      ],
+      "기대": "전환 1회 (ESP32-Beacon1-tx → ESP32-Beacon2-tx)"
+    },
+    {
+      "file": "walk_b123_c_20260810T0324.csv",
+      "kind": "moving",
+      "설명": "비콘 1→2→3 통과 (8.2초)",
+      "비콘수": 3,
+      "길이초": 8.2,
+      "path_order": [
+        "ESP32-Beacon1-tx",
+        "ESP32-Beacon2-tx",
+        "ESP32-Beacon3-tx"
+      ],
+      "기대": "전환 2회 (ESP32-Beacon1-tx → ESP32-Beacon2-tx → ESP32-Beacon3-tx)"
+    },
+    {
+      "file": "walk_b12365_20260810T0357.csv",
+      "kind": "moving",
+      "설명": "1→2→3→6→5 전 구간 통과 (27.8초). 비콘 5개 전부 등장.",
+      "비콘수": 5,
+      "길이초": 27.8,
+      "path_order": [
+        "ESP32-Beacon1-tx",
+        "ESP32-Beacon2-tx",
+        "ESP32-Beacon3-tx",
+        "ESP32-Beacon6",
+        "ESP32-Beacon5"
+      ],
+      "기대": "전환 4회 (ESP32-Beacon1-tx → ESP32-Beacon2-tx → ESP32-Beacon3-tx → ESP32-Beacon6 → ESP32-Beacon5)"
+    },
+    {
+      "file": "walk_b1235_a_20260810T0609.csv",
+      "kind": "moving",
+      "설명": "1→2→3→5 통과 (32.0초). 6번 비콘 없음.",
+      "비콘수": 4,
+      "길이초": 32.0,
+      "path_order": [
+        "ESP32-Beacon1-tx",
+        "ESP32-Beacon2-tx",
+        "ESP32-Beacon3-tx",
+        "ESP32-Beacon5"
+      ],
+      "기대": "전환 3회 (ESP32-Beacon1-tx → ESP32-Beacon2-tx → ESP32-Beacon3-tx → ESP32-Beacon5)"
+    },
+    {
+      "file": "walk_b1235_b_20260810T0624.csv",
+      "kind": "moving",
+      "설명": "1→2→3→5 통과 (30.8초). a와 같은 경로 반복.",
+      "비콘수": 4,
+      "길이초": 30.8,
+      "path_order": [
+        "ESP32-Beacon1-tx",
+        "ESP32-Beacon2-tx",
+        "ESP32-Beacon3-tx",
+        "ESP32-Beacon5"
+      ],
+      "기대": "전환 3회 (ESP32-Beacon1-tx → ESP32-Beacon2-tx → ESP32-Beacon3-tx → ESP32-Beacon5)"
+    },
+    {
+      "file": "walk_b5321_fast_20260810T0625.csv",
+      "kind": "moving",
+      "설명": "5→3→2→1 역방향 빠른 걸음 (31.3초). 통과 속도가 가장 빠른 자료.",
+      "비콘수": 4,
+      "길이초": 31.3,
+      "path_order": [
+        "ESP32-Beacon5",
+        "ESP32-Beacon3-tx",
+        "ESP32-Beacon2-tx",
+        "ESP32-Beacon1-tx"
+      ],
+      "기대": "전환 3회 (ESP32-Beacon5 → ESP32-Beacon3-tx → ESP32-Beacon2-tx → ESP32-Beacon1-tx)"
     }
   ]
 }

@@ -25,7 +25,7 @@ def create_building(req: BuildingRequest, db: Session = Depends(get_db)):
 
 @router.get("/{building_id}", response_model=BuildingResponse)
 def get_building(building_id: str, db: Session = Depends(get_db)):
-    return service.get_building(db, building_id)
+    return service.to_response(db, service.get_building(db, building_id))
 
 
 @router.patch("/{building_id}", response_model=BuildingResponse)

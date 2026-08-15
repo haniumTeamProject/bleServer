@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from app.common import CamelModel
 
 
@@ -15,4 +17,5 @@ class BuildingResponse(CamelModel):
     address: str | None
     floor_count: int | None
     favorite: bool
-    status: str
+    status: str            # 층 상태를 모아 조회 시점에 계산
+    created_at: datetime | None = None

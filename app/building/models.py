@@ -1,6 +1,8 @@
 import uuid
 
-from sqlalchemy import Boolean, Integer, String
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -16,5 +18,8 @@ class Building(Base):
     floor_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     favorite: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    # floorplan_missing | review_needed | beacon_missing | connector_missing | ready
-    status: Mapped[str] = mapped_column(String, default="floorplan_missing")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    # status 컬럼 없음 — 층 상태를 모아 조회 시점에 계산한다 (Floor 참고).

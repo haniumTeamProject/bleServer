@@ -1,6 +1,5 @@
 from sqlalchemy.orm import Session
 
-from app.floor.service import bump_status
 from app.mask.models import FloorMask
 from app.mask.schemas import FloorMaskRequest
 
@@ -21,5 +20,4 @@ def save_mask(db: Session, floor_id: str, req: FloorMaskRequest) -> FloorMask:
     db.commit()
     db.refresh(mask)
 
-    bump_status(db, floor_id, "review_needed", "beacon_missing")
     return mask

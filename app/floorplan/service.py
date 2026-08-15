@@ -1,6 +1,5 @@
 from sqlalchemy.orm import Session
 
-from app.floor.service import bump_status
 from app.floorplan.models import Floorplan
 from app.floorplan.schemas import FloorplanRequest
 
@@ -22,7 +21,6 @@ def upload_floorplan(db: Session, floor_id: str, req: FloorplanRequest) -> Floor
     db.commit()
     db.refresh(floorplan)
 
-    bump_status(db, floor_id, "floorplan_missing", "review_needed")
     return floorplan
 
 

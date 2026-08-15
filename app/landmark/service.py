@@ -10,7 +10,15 @@ def list_landmarks(db: Session, floor_id: str) -> list[Landmark]:
 
 
 def create_landmark(db: Session, floor_id: str, req: LandmarkRequest) -> Landmark:
-    landmark = Landmark(floor_id=floor_id, name=req.name, type=req.type, x=req.x, y=req.y)
+    landmark = Landmark(
+        floor_id=floor_id,
+        name=req.name,
+        category=req.category,
+        x=req.x,
+        y=req.y,
+        source_uid=req.source_uid,
+        source_label=req.source_label,
+    )
     db.add(landmark)
     db.commit()
     db.refresh(landmark)
@@ -24,12 +32,15 @@ def update_landmark(db: Session, landmark_id: str, req: LandmarkRequest) -> Land
 
     if req.name is not None:
         landmark.name = req.name
-    if req.type is not None:
-        landmark.type = req.type
+    if req.category is not None:
+        landmark.category = req.category
     if req.x is not None:
         landmark.x = req.x
     if req.y is not None:
         landmark.y = req.y
+    # source_uid 는 재가져오기 매칭 키라 바꾸지 않는다 (Beacon 과 동일)
+    if req.source_label is not None:
+        landmark.source_label = req.source_label
 
     db.commit()
     db.refresh(landmark)

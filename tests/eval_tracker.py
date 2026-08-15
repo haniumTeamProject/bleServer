@@ -9,6 +9,10 @@ tests/measurements/ 의 실측 CSV 전부를 대상으로 PathTracker를 돌려�
 
 정지 데이터에서 오탐 0을 지키는 것이 최우선이고(서 있는데 안내가 나가면 안 됨),
 그 조건을 만족하는 것들 중 이동 안내가 빠른 쪽을 고른다.
+
+판정 방식은 세 가지다(mode). ①trend ②segment 는 원래대로 추세만 보고,
+③confirm 은 교차를 트리거로 잡고 잠시 뒤 절대 신호차를 다시 재서 확정한다.
+근거는 docs/2단계_확인_판정.md.
 """
 
 import argparse
@@ -179,6 +183,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--sweep", action="store_true", help="임계값만 훑기")
     ap.add_argument("--sweep-full", action="store_true", help="임계값 x 창 x 구간")
+    ap.add_argument("--sweep-gap", action="store_true", help="교차 신호차(min_gap) 훑기")
     args = ap.parse_args()
 
     manifest = json.loads((DATA_DIR / "manifest.json").read_text(encoding="utf-8"))
@@ -191,12 +196,41 @@ def main():
     header = (f"{'정지오탐':>5} {'매칭':>5} {'누락':>5} {'초과':>5} "
               f"{'평균지연':>8} {'최대지연':>8} {'최소통과':>7}")
 
+    if args.sweep_gap:
+        print("교차 신호차(min_gap)를 훑는다. 나머지는 현재 기본 설정 고정.\n")
+        print(f"{'신호차':>6} | {header}")
+        print("-" * 72)
+        ok = []
+        for gap in (0.0, 1.0, 2.0, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0, 7.0, 8.0, 10.0, 12.0):
+            r = evaluate(datasets, require_trend=True, min_gap=gap,
+                         gap_window_ms=300, min_hold_ms=0)
+            clean = r["false_pos"] == 0 and r["missed"] == 0 and r["extra"] == 0
+            if clean:
+                ok.append((abs(r["lag_max"] or 9), r["min_traverse"] or 99, gap, r))
+            print(f"{gap:6.1f} | {fmt(r)} {'✓' if clean else ''}")
+        print()
+        if ok:
+            ok.sort()
+            print("오탐 0 · 누락 0 · 초과 0 을 만족하는 값 (최대지연이 작은 순):")
+            for mx, mt, gap, r in ok:
+                print(f"  신호차 {gap:4.1f}dB → 평균 {r['lag_mean']:+.2f}초, 최대 {r['lag_max']:+.2f}초,"
+                      f" 최소통과 {r['min_traverse']}초")
+            lo = min(g for _, _, g, _ in ok); hi = max(g for _, _, g, _ in ok)
+            print(f"\n  안전 구간: {lo:.1f} ~ {hi:.1f}dB")
+        else:
+            print("조건을 만족하는 값이 없습니다.")
+        return
+
     if not (args.sweep or args.sweep_full):
-        for mode, kw in (("trend  (기존)", dict(mode="trend", threshold=3.0)),
-                         ("segment(이전 기본)", dict(mode="segment", threshold=3.0,
-                                                    window_ms=2500, segments=5)),
-                         ("segment(새 기본)", dict(mode="segment", threshold=2.5,
-                                                   window_ms=2000, segments=5))):
+        for mode, kw in (
+            ("① trend   양끝 평균 (원래 방식)",
+             dict(mode="trend", threshold=3.0)),
+            ("② segment 구간 분할 (원래 방식)",
+             dict(mode="segment", threshold=2.5, window_ms=2000, segments=5)),
+            ("③ ② + 확인 0.5초 / 5dB (현재 기본)",
+             dict(mode="confirm", threshold=2.5, window_ms=2000, segments=5,
+                  confirm_delay_ms=500, confirm_gap=5.0, gap_window_ms=300)),
+        ):
             r = evaluate(datasets, **kw)
             print(f"── {mode}")
             print(f"   {header}")

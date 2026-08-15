@@ -4,7 +4,9 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.admin.models import Admin
-from app.admin.schemas import LoginRequest, LoginResponse, SignupRequest, UpdateStatusRequest
+from app.admin.schemas import (
+    LoginRequest, LoginResponse, SignupRequest, UpdateProfileRequest, UpdateStatusRequest,
+)
 from app.security.jwt import create_access_token
 from app.security.password import hash_password, verify_password
 
@@ -60,6 +62,36 @@ def update_status(db: Session, admin_id: str, req: UpdateStatusRequest, approver
     admin.status = req.status
     admin.approved_by = approver.id
     admin.approved_at = datetime.now(timezone.utc)
+
+    db.commit()
+    db.refresh(admin)
+    return admin
+
+
+def get_by_email(db: Session, email: str) -> Admin:
+    admin = db.query(Admin).filter(Admin.email == email).first()
+    if admin is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "계정을 찾을 수 없습니다.")
+    return admin
+
+
+def update_profile(db: Session, email: str, req: UpdateProfileRequest) -> Admin:
+    """토큰의 주인이 자기 정보를 고친다.
+
+    email 을 바꾸면 토큰의 sub 와 어긋나므로, 바꾼 뒤에는 다시 로그인해야 한다.
+    같은 이메일이 이미 있으면 409.
+    """
+    admin = get_by_email(db, email)
+
+    if req.email is not None and req.email != admin.email:
+        exists = db.query(Admin).filter(Admin.email == req.email).first()
+        if exists is not None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "이미 쓰는 이메일입니다.")
+        admin.email = req.email
+    for field in ("name", "org", "position", "phone", "building"):
+        value = getattr(req, field)
+        if value is not None:
+            setattr(admin, field, value)
 
     db.commit()
     db.refresh(admin)
