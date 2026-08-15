@@ -69,7 +69,7 @@ from app.ws import landmark_matcher
 # ---------------------------------------------------------------------------
 PROVIDER = os.environ.get("LLM_PROVIDER", "ollama").strip().lower()
 MODEL = os.environ.get("LLM_MODEL", "exaone3.5:7.8b").strip()
-BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:11434").rstrip("/")
+BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:11435").rstrip("/")
 API_KEY = os.environ.get("LLM_API_KEY", "").strip()
 TIMEOUT_S = float(os.environ.get("LLM_TIMEOUT", "6"))
 VERIFY_NUMBER = os.environ.get("LLM_VERIFY_NUMBER", "1") != "0"
