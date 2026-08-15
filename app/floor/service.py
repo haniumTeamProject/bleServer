@@ -48,7 +48,27 @@ def create_floor(db: Session, building_id: str, req: FloorRequest) -> FloorRespo
 
 
 def delete_floor(db: Session, floor_id: str) -> None:
+    """층과 **거기 딸린 것 전부**를 지운다.
+
+    예전에는 `floors` 행 하나만 지웠다. 이 스키마에는 외래키 제약이 없어서
+    (`floor_id` 가 전부 그냥 String 이다) DB 가 대신 정리해 주지 않는다.
+    그래서 비콘·랜드마크·설계도·마스크·연결자 좌표가 **주인 없는 행으로 남았다.**
+
+    남은 행은 조용히 쌓이기만 하는 게 아니다. 목적지 목록이나 통계처럼 층을
+    거치지 않고 테이블을 직접 훑는 곳에서는 지운 층의 데이터가 그대로 나온다.
+    """
+    from app.beacon.models import Beacon
+    from app.connector.models import ConnectorPosition
+    from app.floorplan.models import Floorplan
+    from app.landmark.models import Landmark
+    from app.mask.models import FloorMask
+
     floor = get_floor(db, floor_id)
+    db.query(Beacon).filter(Beacon.floor_id == floor_id).delete()
+    db.query(Landmark).filter(Landmark.floor_id == floor_id).delete()
+    db.query(ConnectorPosition).filter(ConnectorPosition.floor_id == floor_id).delete()
+    db.query(Floorplan).filter(Floorplan.floor_id == floor_id).delete()
+    db.query(FloorMask).filter(FloorMask.floor_id == floor_id).delete()
     db.delete(floor)
     db.commit()
 
