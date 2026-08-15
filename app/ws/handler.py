@@ -4,9 +4,10 @@ import time
 from pathlib import Path
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 
-from app.ws import landmark_matcher, llm_matcher
+from app.nav.map_source import MapDataError
+from app.ws import landmark_matcher, llm_matcher, navigation
 from app.ws.path_tracker import PathTracker
 from app.ws.rssi_filter import RssiFilterPipeline
 
@@ -87,97 +88,29 @@ def _map_tool_dir() -> Path:
     return _resolve_map_tool_dir()
 
 
-@router.get("/map-static/{filename}")
-async def map_static_file(filename: str):
-    """지도 도구가 쓰는 정적 파일(평면도 이미지, 프로젝트 JSON) 제공.
-
-    프로젝트 파일이 13MB가 넘어서 HTML에 끼워 넣지 않고 따로 받아가게 한다.
-    """
-    # 상위 경로 탈출(../) 방지 — 파일 이름만 받는다
-    safe = Path(filename).name
-    target = _map_tool_dir() / "static" / safe
-    if not target.is_file():
-        return JSONResponse({"error": f"파일을 찾을 수 없습니다: {safe}"}, status_code=404)
-    return FileResponse(target)
-
-
-@router.get("/map-static")
-async def map_static_list():
-    """자동 로드용 — static 폴더에 어떤 파일이 있는지 알려준다."""
-    static_dir = _map_tool_dir() / "static"
-    if not static_dir.is_dir():
-        return JSONResponse({"files": []})
-    return JSONResponse({"files": sorted(p.name for p in static_dir.iterdir() if p.is_file())})
-
-
-@router.get("/map", response_class=HTMLResponse)
-async def map_tool_page() -> HTMLResponse:
-    try:
-        return HTMLResponse((_map_tool_dir() / "map_inspection.html").read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        # 경로가 어긋났을 때 빈 화면 대신 원인을 알려준다 (실측 현장에서 디버깅하기 쉽게)
-        return HTMLResponse(
-            "<h3>지도 도구 파일을 찾지 못했습니다</h3>"
-            f"<p>찾은 위치: <code>{_map_tool_dir() / 'map_inspection.html'}</code></p>"
-            "<p>MAP_TOOL_DIR 환경변수로 폴더를 직접 지정할 수도 있습니다.</p>"
-            "<p>map-tool 폴더가 backend-python과 같은 상위 폴더 안에 있는지 확인해주세요.</p>",
-            status_code=404,
-        )
-
-
-def _extract_map_tool_parts() -> tuple[str, str, str]:
-    """지도 도구 HTML에서 (스타일, 본문, 스크립트)를 뽑아 monitor에 합칠 수 있게 만든다.
-
-    지도 도구는 WEB-FE 화면을 흉내낸 앱 셸(사이드바·상단바·로고)을 갖고 있는데,
-    monitor 안에서는 껍데기일 뿐이라 떼어낸다. 나중에 WEB-FE로 옮겨갈 때를 대비해
-    map_inspection.html은 단독 실행 가능한 원본 그대로 두고, 합치는 건 여기서만 한다.
-    """
-    import re
-
-    raw = (_map_tool_dir() / "map_inspection.html").read_text(encoding="utf-8")
-
-    style = re.search(r"<style>(.*?)</style>", raw, re.S)
-    script = re.search(r"<script>(.*?)</script>", raw, re.S)
-    body = re.search(r"<body>(.*?)</body>", raw, re.S)
-    if not (style and script and body):
-        raise ValueError("지도 도구 HTML 구조가 예상과 다릅니다 (style/script/body를 못 찾음)")
-
-    css = style.group(1)
-    # 전역 선택자는 monitor 쪽 스타일을 덮어쓰므로 제거한다.
-    # (겹치는 클래스는 .on 하나뿐인데 양쪽 다 복합 선택자라 충돌하지 않음)
-    css = re.sub(r"^\s*\*\s*\{[^}]*\}", "", css, flags=re.M)
-    css = re.sub(r"^\s*body\s*\{[^}]*\}", "", css, flags=re.M)
-    # 셸이 화면 전체 높이를 차지하려 하는 것도 막는다
-    css = css.replace(".shell{display:flex;min-height:100vh;}", ".shell{display:block;}")
-    css = css.replace(".content{padding:28px 32px;flex:1;}", ".content{padding:0;}")
-
-    markup = body.group(1)
-    markup = markup[: markup.rfind("<script>")] if "<script>" in markup else markup
-    # 앱 셸 껍데기 제거 — 사이드바와 상단바
-    markup = re.sub(r'<aside class="sidebar">.*?</aside>', "", markup, flags=re.S)
-    markup = re.sub(r'<div class="topbar">.*?\n    </div>\n', "", markup, count=1, flags=re.S)
-
-    return css, markup, script.group(1)
+# ── 지도 도구(map-tool)는 걷어냈다 ────────────────────────────────
+#
+# `/map`(단독 도구), `/map-static`(정적 파일), `_extract_map_tool_parts()`(monitor 에
+# 통째로 합쳐 넣던 코드)를 모두 지웠다. 편집은 관리자웹이, 노드 생성은 서버가
+# 하므로(app/nav/path_nodes.py) 남겨둘 이유가 없었다.
+#
+# `_map_tool_dir()` 만 남긴다 — DB 가 없을 때 랜드마크 목록을 지도 프로젝트 파일에서
+# 읽는 폴백이 아직 그 경로를 쓴다(_load_landmark_list).
 
 
 @router.get("/monitor", response_class=HTMLResponse)
 async def monitor_page() -> HTMLResponse:
-    # 디버그용 실시간 RSSI 모니터 — /ws에 리스너로 붙어서 브로드캐스트되는 값을 표로 보여줌.
-    # 데이터를 보내는 쪽(안드로이드 등)이 아니라 "구경만 하는" 별도 연결이라 기존 브로드캐스트 로직 그대로 씀.
-    # 지도 도구는 iframe이 아니라 같은 페이지로 합쳐서 내려준다 (창 간 통신 없이 직접 호출).
-    try:
-        map_css, map_markup, map_script = _extract_map_tool_parts()
-    except (FileNotFoundError, ValueError) as e:
-        map_css, map_script = "", ""
-        map_markup = f'<div class="hint">지도 도구를 불러오지 못했습니다: {e}</div>'
+    """실측용 모니터 — RSSI, 서버 판정, 지도.
 
-    html = (
-        _load_monitor_html()
-        .replace("/*__MAP_TOOL_CSS__*/", map_css)
-        .replace("<!--__MAP_TOOL_MARKUP__-->", map_markup)
-        .replace("/*__MAP_TOOL_SCRIPT__*/", map_script)
-    )
-    return HTMLResponse(html)
+    **지도는 서버가 주는 그래프를 그대로 그린다.** 예전에는 지도 편집 도구
+    (map_inspection.html) 3,200줄을 이 페이지에 통째로 합쳐 넣었는데, 그 도구가
+    자기 알고리즘으로 만든 그래프는 관리자웹이 만든 것과 눈에 띄게 달랐다.
+    이제 노드 생성기가 서버에 있으므로(app/nav/path_nodes.py) `/map-db` 로 받아
+    그리면 **화면에 뜨는 것과 안내에 쓰는 것이 같은 값**이 된다.
+
+    편집 기능(마스크 칠하기·비콘 배치·이름 붙이기)은 전부 관리자웹으로 넘어갔다.
+    """
+    return HTMLResponse(_load_monitor_html())
 
 
 def _is_slow_message(raw: str) -> bool:
@@ -420,8 +353,81 @@ def _process_guide(data: dict) -> str:
 _DESTINATION_TYPE = "destination"
 
 
-def _load_landmark_list() -> list[landmark_matcher.Landmark]:
-    """지도 프로젝트 파일에서 랜드마크를 읽는다. 파일이 바뀌었을 때만 다시 파싱한다."""
+def _attach_route(msg: dict, landmark: landmark_matcher.Landmark,
+                  from_beacon: str | None = None) -> None:
+    """목적지까지의 경로를 만들어 추적기에 얹고, 응답에 실어 보낸다.
+
+    **실패해도 목적지 응답 자체는 살린다.** 경로를 못 만드는 이유는 여러 가지인데
+    (축척 미설정, 비콘 미등록, 길 없음), 그때 "목적지를 못 알아들었다"로 보이면
+    엉뚱한 곳을 고치게 된다. 그래서 이유를 따로 실어 보낸다.
+
+    `from_beacon` 은 출발점을 손으로 지정할 때만 쓴다(`/monitor` 에서 폰 없이
+    시험할 때). 실제 안내에서는 안 온다 — 폰이 올린 RSSI 로 정한다.
+    """
+    try:
+        plan = navigation.plan_route(landmark.id, list(_filters.keys()), _filters,
+                                     from_beacon_id=from_beacon)
+    except MapDataError as e:
+        msg["routeError"] = str(e)
+        print(f"[경로] 만들지 못함: {str(e).splitlines()[0]}")
+        return
+    except Exception as e:                     # DB 가 없거나 예상 못한 오류
+        msg["routeError"] = f"경로 생성 중 오류: {e}"
+        print(f"[경로] 오류: {e}")
+        return
+
+    # **경로는 언제나 실어 보낸다.**
+    #
+    # 경로를 만드는 것과 추적을 거는 것은 다른 일이다. 앞은 지도만 있으면 되고,
+    # 뒤는 폰이 비콘을 올리고 있어야 한다. 예전엔 이 둘을 한 덩어리로 봐서, 폰이
+    # 안 붙어 있으면 **이미 계산해 둔 경로를 통째로 버렸다.** 그러면 지도로 경로를
+    # 확인하는 것조차 못 한다.
+    msg["route"] = {
+        "from": plan.from_beacon,
+        "floorId": plan.floor_id,
+        "distanceM": round(plan.distance_m, 1),
+        "seconds": plan.seconds,
+        "crossings": plan.route.crossings,
+        "beacons": [s.beacon_id for s in plan.route.steps],
+        "keys": plan.keys,
+        "missing": plan.missing,
+    }
+    # 목적지 이름만 말하고 끝내지 않고 거리·시간을 붙인다. 얼마나 걸리는지 모르면
+    # 사용자가 제대로 가고 있는지 판단할 근거가 없다.
+    msg["speech"] = plan.speech(landmark.name)
+
+    if len(plan.keys) >= 2:
+        _tracker.set_path(plan.keys)
+        _tracker.start_session()
+        msg["tracking"] = True
+        print(f"[경로] {plan.from_beacon} → {landmark.name}  "
+              f"{plan.distance_m:.0f}m / {plan.seconds}초 / 비콘 {len(plan.keys)}개 · 추적 시작")
+    else:
+        msg["tracking"] = False
+        msg["trackingNote"] = (
+            f"경로는 만들었지만 지금 잡히는 비콘이 {len(plan.keys)}개뿐이라 추적은 걸지 않았습니다"
+            + (f" (안 잡히는 비콘: {', '.join(plan.missing[:6])})" if plan.missing else "")
+        )
+        print(f"[경로] {plan.from_beacon} → {landmark.name}  "
+              f"{plan.distance_m:.0f}m / 비콘 {len(plan.route.steps)}개 · "
+              f"추적 안 검(잡히는 비콘 {len(plan.keys)}개)")
+
+
+def _load_landmark_list(floor_id: str | None = None) -> list[landmark_matcher.Landmark]:
+    """목적지 후보 목록.
+
+    **DB 를 먼저 본다.** 관리자웹이 넣은 것이 정본이고, 경로 생성도 DB 의
+    랜드마크 id 로 하므로 매칭에 쓰는 목록이 다르면 id 가 안 맞는다.
+    DB 가 비어 있거나 붙지 않으면 예전처럼 지도 프로젝트 파일로 떨어진다
+    (서버만 띄우고 지도 도구로 실측하던 흐름을 깨지 않기 위해).
+
+    `floor_id` 는 목적지를 어느 층에서 찾을지다. 안 주면 지금 잡히는 비콘으로
+    알아낸다 — 층을 안 좁히면 다른 층·다른 건물의 같은 이름이 후보로 섞인다.
+    """
+    from_db = _load_landmarks_from_db(floor_id or _current_floor_id())
+    if from_db:
+        return from_db
+
     global _landmarks, _landmarks_mtime
 
     path = _map_tool_dir() / "static" / "mappin_project.json"
@@ -442,6 +448,86 @@ def _load_landmark_list() -> list[landmark_matcher.Landmark]:
     _landmarks_mtime = mtime
     print(f"[목적지] 랜드마크 {len(_landmarks)}개 로드: {path}")
     return _landmarks
+
+
+_DB_LANDMARK_TTL_MS = 10_000
+_db_landmarks: list[landmark_matcher.Landmark] = []
+_db_landmarks_at: float = 0.0
+_db_landmarks_floor: str | None = None      # 캐시가 어느 층 것인지 — 층이 바뀌면 다시 읽는다
+
+
+def _current_floor_id() -> str | None:
+    """지금 있는 층. 알 수 없으면 None.
+
+    지금 가장 세게 잡히는 비콘이 어느 층에 등록돼 있는지로 정한다. 비콘의
+    major(=100+층)로도 알 수 있지만, 그러려면 폰이 major 를 실어 보내야 하는데
+    아직 안 보낸다(펌웨어가 전부 major=1). 그래서 이름으로 DB 를 찾는다.
+    """
+    key = navigation.strongest_beacon_key(_filters)
+    if key is None:
+        return None
+    name = navigation._ble_name(key)
+    try:
+        from app.beacon.models import Beacon
+        from app.database import SessionLocal
+
+        db = SessionLocal()
+        try:
+            row = db.query(Beacon.floor_id).filter(Beacon.name == name).first()
+            return row[0] if row else None
+        finally:
+            db.close()
+    except Exception:
+        return None
+
+
+def _load_landmarks_from_db(floor_id: str | None = None) -> list[landmark_matcher.Landmark]:
+    """목적지 후보를 DB 에서 읽는다.
+
+    **층을 반드시 좁힌다.** 예전에는 등록된 모든 층의 목적지를 한 통에 담아서,
+    4층에서 "화장실"이라고 말하면 1층 화장실이나 아예 다른 건물의 화장실이 후보로
+    올라왔다. 이름이 겹치는 것이 정상인 값들이라(화장실·계단·엘리베이터는 층마다
+    있다) 되묻기가 무의미해지고, 운 나쁘면 갈 수 없는 곳으로 안내한다.
+
+    층을 모르면 **빈 목록을 준다.** 아무 층이나 골라 답하는 것보다 "어디 있는지
+    모르겠다"가 낫다 — 잘못 안내하면 사용자가 알아챌 방법이 없다.
+
+    매 발화마다 DB 를 치지 않도록 잠깐 들고 있는다. 관리자가 목적지를 추가하면
+    10초 안에 반영된다 — 실측 중에 고치고 바로 말해보는 흐름을 막지 않을 만큼 짧고,
+    LLM 호출 한 번보다는 훨씬 싸다.
+    """
+    global _db_landmarks, _db_landmarks_at, _db_landmarks_floor
+
+    if floor_id is None:
+        return []
+
+    now = time.time() * 1000
+    if (_db_landmarks and _db_landmarks_floor == floor_id
+            and now - _db_landmarks_at < _DB_LANDMARK_TTL_MS):
+        return _db_landmarks
+
+    try:
+        from app.database import SessionLocal
+        from app.nav.db_map_source import DbMapSource
+
+        db = SessionLocal()
+        try:
+            raw = [{"id": lm.id, "name": lm.name, "x": lm.x, "y": lm.y}
+                   for lm in DbMapSource(db).landmarks(floor_id)]
+        finally:
+            db.close()
+    except Exception as e:
+        # DB 없이 파일로만 돌리는 흐름을 막지 않는다. 조용히 파일로 떨어진다.
+        print(f"[목적지] DB 조회 건너뜀: {e}")
+        return []
+
+    if not raw:
+        return []
+    _db_landmarks = landmark_matcher.load_landmarks(raw)
+    _db_landmarks_at = now
+    _db_landmarks_floor = floor_id
+    print(f"[목적지] {floor_id} 층의 랜드마크 {len(_db_landmarks)}개 로드")
+    return _db_landmarks
 
 
 def _landmark_json(lm: landmark_matcher.Landmark) -> dict:
@@ -474,7 +560,10 @@ def _process_destination(data: dict, session: dict) -> tuple[str, list[dict]]:
     event = data.get("event")
     request_id = str(data.get("requestId") or "")
     text = str(data.get("text") or "")
-    landmarks = _load_landmark_list()
+    # 목적지는 **지금 있는 층**에서만 찾는다. /monitor 는 고른 층을 실어 보내고,
+    # 폰은 안 보내므로 잡히는 비콘으로 알아낸다.
+    floor_id = str(data.get("floorId") or "") or None
+    landmarks = _load_landmark_list(floor_id)
 
     def reply(result: landmark_matcher.MatchResult) -> tuple[str, list[dict]]:
         msg: dict = {
@@ -490,6 +579,10 @@ def _process_destination(data: dict, session: dict) -> tuple[str, list[dict]]:
             msg["landmark"] = _landmark_json(result.landmark)
             session[_PENDING_KEY] = []
             print(f"[목적지] \"{text}\" → {result.landmark.name}  [{result.source}]")
+            # 목적지가 정해졌으면 곧바로 경로를 만들어 추적기에 얹는다.
+            # 예전에는 여기서 끝나서, /monitor 에서 사람이 비콘 순서를 손으로
+            # 등록해야 안내가 돌았다.
+            _attach_route(msg, result.landmark, str(data.get("fromBeacon") or "") or None)
         elif result.status == "ambiguous":
             msg["candidates"] = [_landmark_json(c) for c in result.candidates]
             session[_PENDING_KEY] = list(result.candidates)
