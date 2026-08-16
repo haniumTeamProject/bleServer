@@ -173,12 +173,25 @@ ws://<서버>/ws/navigation
 받은 메시지 하나를 이렇게 처리함. **이게 전부임.**
 
 ```kotlin
-fun onServerMessage(msg: JSONObject) {
-    msg.optString("state").takeIf { it.isNotEmpty() }?.let { showScreen(it) }
-    msg.optJSONObject("screen")?.let { updateScreen(it) }
-    msg.optString("haptic").takeIf { it.isNotEmpty() }?.let { haptics.play(it) }
+// JSON null 을 Java null 로 받는 도우미.
+//
+// **optString 을 그냥 쓰면 안 됨.** 안드로이드 org.json 은 JSON null 에 대해
+// 문자열 "null" 을 돌려줌 — Java null 이 아님.
+//
+//     opt("utterance")            → JSONObject.NULL  (Java null 아님)
+//     JSON.toString(그 값)         → String.valueOf(...) → "null"
+//
+// 그래서 `utterance != null` 이 참이 되고 앱이 "널" 이라고 읽음.
+// haptic 도 마찬가지로 haptics.play("null") 이 됨.
+private fun JSONObject.stringOrNull(name: String): String? =
+    if (isNull(name)) null else optString(name).takeIf { it.isNotEmpty() }
 
-    val utterance = msg.optString("utterance", null)
+fun onServerMessage(msg: JSONObject) {
+    msg.stringOrNull("state")?.let { showScreen(it) }
+    msg.optJSONObject("screen")?.let { updateScreen(it) }
+    msg.stringOrNull("haptic")?.let { haptics.play(it) }
+
+    val utterance = msg.stringOrNull("utterance")
     val listenAfter = msg.optBoolean("listenAfter", false)
 
     when {

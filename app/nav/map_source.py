@@ -60,6 +60,9 @@ class BeaconInfo:
     x: float
     y: float
     minor: int | None = None
+    # 층 번호가 들어 있다(100 + 층). 추적 키를 만들 때 minor 와 짝으로 쓴다 —
+    # minor 는 층 안에서만 유일해서 major 없이 쓰면 다른 층 비콘과 겹친다.
+    major: int | None = None
     mac: str | None = None
     ble_name: str | None = None
 

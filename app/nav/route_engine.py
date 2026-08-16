@@ -203,24 +203,60 @@ def find_node_path(graph: Graph, start_id: str, end_id: str,
 # ---------------------------------------------------------------------------
 # 노드 경로 → 비콘 순서
 # ---------------------------------------------------------------------------
+# 경로 선을 따라 이 간격으로 훑는다(미터).
+#
+# 노드 사이가 멀면 그 중간을 지나는 비콘이 통째로 빠지므로, 노드만 보지 않고
+# 선 위를 잘게 훑는다. 자세한 이유는 `to_beacon_sequence` 참고.
+SAMPLE_STEP_M = 1.0
+
+
+def _walk(graph: Graph, node_ids: list[str], meters_per_px: float):
+    """경로 선 위를 일정 간격으로 훑으며 (좌표, 그 지점이 속한 노드 id)를 내놓는다.
+
+    간격은 실거리 기준이라 축척이 달라져도 촘촘함이 같다.
+    """
+    pts = [(graph.node(nid), nid) for nid in node_ids]
+    pts = [(n, nid) for n, nid in pts if n is not None]
+    if not pts:
+        return
+    step_px = SAMPLE_STEP_M / meters_per_px if meters_per_px > 0 else 1.0
+
+    yield (pts[0][0].x, pts[0][0].y), pts[0][1]
+    for (a, a_id), (b, b_id) in zip(pts, pts[1:]):
+        seg = math.hypot(b.x - a.x, b.y - a.y)
+        n = max(1, int(seg / step_px))
+        for i in range(1, n + 1):
+            t = i / n
+            # 어느 노드에 속한 지점인지 — 가까운 쪽으로 준다. 회전 방향을
+            # 계산할 때 이 값을 쓰므로 중간 지점이 엉뚱한 노드에 붙으면 안 된다.
+            yield (a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t), (a_id if t < 0.5 else b_id)
+
+
 def to_beacon_sequence(graph: Graph, node_ids: list[str], beacons: list[BeaconInfo],
                        radius_m: float, meters_per_px: float) -> list[BeaconStep]:
     """경로가 지나는 비콘을 순서대로.
 
-    같은 비콘이 연속으로 나오면 하나로 접는다. 경로 노드는 1m 간격으로 촘촘히
-    깔려 있어서, 접지 않으면 비콘 하나가 수십 번 반복된다.
+    ── 노드만 보면 비콘이 빠진다 ────────────────────────────────────
+
+    예전 지도 도구는 경로에 **1m 간격 노드**를 깔아두고 그것을 훑었다. 지금 쓰는
+    그래프(관리자웹 것)는 노드가 **코너·맞은편·목적지**에만 있어서 훨씬 성기다.
+    긴 복도는 양 끝 코너 두 점뿐이라, 그 사이에 늘어선 비콘이 통째로 빠진다.
+
+    그렇다고 그래프에 노드를 더 넣으면 관리자웹이 만드는 것과 갈라진다. 대신
+    **경로 선 위를 1m 간격으로 훑는다.** 노드는 그대로 두고 훑기만 촘촘히 하는
+    것이라 결과는 옛 도구와 같아진다.
+
+    같은 비콘이 연속으로 나오면 하나로 접는다 — 안 접으면 비콘 하나가 수십 번
+    반복된다.
 
     **연속이 아닌 중복은 접지 않는다.** 왕복 경로에서 같은 비콘을 두 번 지나는
     것은 실제로 일어나는 일이고, 그때는 두 번 세는 것이 맞다.
     """
     steps: list[BeaconStep] = []
-    for nid in node_ids:
-        node = graph.node(nid)
-        if node is None:
-            continue
+    for (x, y), nid in _walk(graph, node_ids, meters_per_px):
         best, best_d = None, math.inf
         for b in beacons:
-            d = math.hypot(node.x - b.x, node.y - b.y) * meters_per_px
+            d = math.hypot(x - b.x, y - b.y) * meters_per_px
             if d <= radius_m and d < best_d:
                 best, best_d = b, d
         if best is None:

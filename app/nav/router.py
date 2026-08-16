@@ -52,6 +52,22 @@ def get_map_project(floor_id: str, db: Session = Depends(get_db)):
         return JSONResponse({"error": str(e)}, status_code=404)
 
 
+@router.get("/current-route")
+def get_current_route():
+    """지금 안내 중인 경로. 없으면 `null`.
+
+    **폰이 말해서 정해진 경로도 여기로 나온다.** 목적지 응답은 물어본 폰에게만
+    보내므로(되묻기 후보가 다른 연결로 새면 안 된다) `/monitor` 는 그 메시지를
+    보지 못한다. 대신 서버가 들고 있는 값을 가져가 화면에 그린다.
+
+    언제 가져갈지는 RSSI 중계에 실려 오는 `_track.routeSeq` 로 안다 —
+    그 번호가 바뀌었을 때만 한 번 부르면 된다.
+    """
+    from app.ws.handler import _current_route      # 순환 import 를 피해 여기서
+
+    return _current_route
+
+
 @router.get("/floors/{floor_id}/graph")
 def get_map_graph(floor_id: str, db: Session = Depends(get_db)):
     """경로 노드와 연결. **서버가 안내에 실제로 쓰는 그래프 그대로다.**

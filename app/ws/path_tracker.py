@@ -447,6 +447,19 @@ class PathTracker:
                 latest = buf[-1][0]
         return latest
 
+    def _audible_idx(self, direction: int) -> int | None:
+        """지금 자리에서 그 방향으로, **신호가 잡히는** 가장 가까운 자리.
+
+        경로에는 아직 안 잡힌 비콘도 들어 있으므로 바로 옆 칸이 비어 있을 수 있다.
+        그때 멈추면 안내가 영영 안 나간다.
+        """
+        i = self.index + direction
+        while 0 <= i < len(self.path):
+            if self._latest(self.path[i]) is not None:
+                return i
+            i += direction
+        return None
+
     def _latest(self, key):
         buf = self.history.get(key) if key else None
         return buf[-1][1] if buf else None
@@ -494,8 +507,11 @@ class PathTracker:
         """트리거된 뒤의 확인 단계. 아직 확정 못 하면 None."""
         cur_key = self.path[self.index]
         forward = self.armed_dir == "forward"
-        other_key = (self.path[self.index + 1] if forward and self.index < len(self.path) - 1
-                     else self.path[self.index - 1] if not forward and self.index > 0 else None)
+        # 확인 상대도 **들리는 자리**로 잡는다. 바로 옆 칸만 보면, 아직 안 잡힌
+        # 비콘이 사이에 있을 때 상대가 None 이 되어 그대로 취소된다
+        # (evaluate 에서 이웃을 건너뛰어 무장해놓고 여기서 풀리는 셈이다).
+        other_idx = self._audible_idx(1 if forward else -1)
+        other_key = self.path[other_idx] if other_idx is not None else None
 
         cur_g = self._gap_value(cur_key)
         other_g = self._gap_value(other_key)
@@ -525,7 +541,9 @@ class PathTracker:
 
         if gap >= self.confirm_gap and trend_ok:
             self._disarm()
-            self.index = self.index + 1 if forward else max(0, self.index - 1)
+            target = self._audible_idx(1 if forward else -1)
+            self.index = target if target is not None else (
+                min(len(self.path) - 1, self.index + 1) if forward else max(0, self.index - 1))
             self.last_verdict = (f"확인 완료 ({gap:.1f}dB) → "
                                  f"{'다음' if forward else '이전'} 노드로")
             self.last_verdict_kind = "advance" if forward else "back"
@@ -555,6 +573,20 @@ class PathTracker:
         prev_key = self.path[self.index - 1] if self.index > 0 else None
         cur_key = self.path[self.index]
         next_key = self.path[self.index + 1] if self.index < len(self.path) - 1 else None
+
+        # **신호가 안 잡히는 자리는 건너뛴다.**
+        #
+        # 경로에는 아직 한 번도 안 잡힌 비콘도 들어 있다(목적지가 정해지면 DB 로
+        # 경로 전체를 미리 세우기 때문이다 — navigation.tracking_key 참고).
+        # 바로 옆 칸만 보면 그런 자리에서 판정이 멈춰 안내가 영영 안 나간다.
+        # 실제로 실물 비콘 두 개가 경로에서 떨어져 있으면 한 건도 못 나갔다.
+        #
+        # 들리는 것 중 가장 가까운 자리를 이웃으로 삼는다. 사이에 있는 비콘은
+        # 지나가긴 했지만 들리지 않았을 뿐이라, 건너뛰는 것이 실제와 맞는다.
+        prev_idx = self._audible_idx(-1)
+        next_idx = self._audible_idx(+1)
+        prev_key = self.path[prev_idx] if prev_idx is not None else None
+        next_key = self.path[next_idx] if next_idx is not None else None
 
         trend_prev = self._trend(prev_key) if prev_key else None
         trend_cur = self._trend(cur_key)
@@ -605,7 +637,7 @@ class PathTracker:
                     self.last_verdict = "추세 판정됨 — 확인 대기 시작"
                     self.last_verdict_kind = "warn"
                     return None
-                self.index += 1
+                self.index = next_idx if next_idx is not None else min(len(self.path) - 1, self.index + 1)
                 self.last_verdict = "전진 → 다음 노드로 이동"
                 self.last_verdict_kind = "advance"
                 return self._transition("forward")
@@ -642,7 +674,7 @@ class PathTracker:
                     self.last_verdict = "역방향 추세 판정됨 — 확인 대기 시작"
                     self.last_verdict_kind = "warn"
                     return None
-                self.index = max(0, self.index - 1)
+                self.index = prev_idx if prev_idx is not None else max(0, self.index - 1)
                 self.last_verdict = "후퇴 → 이전 노드로 되돌림"
                 self.last_verdict_kind = "back"
                 return self._transition("backward")

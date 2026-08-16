@@ -168,19 +168,31 @@ def main() -> int:
     # 경로를 만드는 것과 추적을 거는 것은 다른 일이다. 앞은 지도만 있으면 되고,
     # 뒤는 폰이 비콘을 올리고 있어야 한다. 예전엔 이 둘을 한 덩어리로 봐서,
     # 폰이 없으면 이미 계산해 둔 경로를 통째로 버렸다.
-    print("\n── 폰이 안 붙어 있을 때 (출발 비콘만 지정) ──")
+    # ── 아직 안 잡힌 비콘도 경로에 미리 선다 ─────────────────
+    #
+    # 예전에는 추적 키가 RSSI 스트림의 키("MAC|이름")였다. 그 키는 폰이 그 비콘을
+    # 한 번이라도 봐야 생기므로, 목적지를 말하는 순간에는 앞쪽 비콘이 전부 빠져
+    # 20개짜리 경로가 두어 개로 쪼그라들었다.
+    #
+    # 지금은 minor 로 키를 만든다. DB 만으로 만들 수 있어 미리 세워둘 수 있고,
+    # 걸어가다 신호가 잡히면 그때부터 그 자리가 채워진다.
+    print("\n── 아직 안 잡힌 비콘도 경로에 선다 ──")
     handler._filters.clear()
+    handler._track_values.clear()
     handler._tracker.set_path([])
     payload, _ = handler._process_destination(
         {"event": "resolve", "text": "404", "requestId": "t", "floorId": FLOOR_ID, "fromBeacon": "B6"}, {})
     msg = json.loads(payload)
+    r = msg.get("route", {})
     check(msg["event"] == "resolved", "목적지 해석은 성공한다", msg["event"])
-    check("route" in msg and msg["route"]["beacons"],
-          "경로는 그대로 내려온다", f'비콘 {len(msg.get("route", {}).get("beacons", []))}개')
-    check(msg.get("tracking") is False, "추적은 걸지 않았다고 알려준다")
-    check(bool(msg.get("trackingNote")), "왜 안 걸었는지 말한다",
-          (msg.get("trackingNote") or "")[:38])
-    check(not handler._tracker.path, "추적기에 경로가 안 들어갔다")
+    check(bool(r.get("beacons")), "경로가 내려온다", f'비콘 {len(r.get("beacons", []))}개')
+    check(msg.get("tracking") is True,
+          "잡힌 비콘이 없어도 추적이 걸린다", f'경로 {len(handler._tracker.path)}개')
+    check(handler._tracker.path == r["keys"], "추적기 경로가 응답과 같다")
+    check(all("-" in k for k in r["keys"]),
+          "추적 키가 major-minor 형식이다", r["keys"][0] if r["keys"] else "")
+    check(len(r.get("missing", [])) == len(r["beacons"]),
+          "지금 안 잡히는 비콘을 전부 표시한다", f'{len(r.get("missing", []))}개')
 
     # ── 경로 자체를 못 만들 때 ───────────────────────────────
     print("\n── 경로 자체를 못 만들 때 ──")

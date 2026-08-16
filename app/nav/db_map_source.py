@@ -126,8 +126,10 @@ class DbMapSource:
                 x=float(b.x or 0),
                 y=float(b.y or 0),
                 minor=b.minor,
+                major=b.major,
                 mac=b.mac,
-                # DB 의 `name` 이 곧 광고 이름이다. map-tool 은 이걸 bleName 이라 부른다.
+                # 관리자가 붙인 **표시 이름**이다("중앙 갈림길"). 폰이 올리는 광고
+                # 이름과는 다른 값이라 매칭에 먼저 쓰면 안 된다 — minor 가 우선이다.
                 ble_name=b.name,
             )
             for b in rows

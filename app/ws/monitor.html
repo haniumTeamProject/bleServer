@@ -100,7 +100,35 @@
   .chip b { font-variant-numeric: tabular-nums; }
 
   /* ↓ 여기부터 지도 도구에서 가져온 스타일 (앱 셸용 전역 규칙은 서버에서 걸러냄) */
-  /*__MAP_TOOL_CSS__*/
+  /* 지도 — 서버 그래프를 그리는 읽기 전용 캔버스 */
+  .map-bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px; }
+  .map-bar select, .map-bar input {
+    font-family:inherit; font-size:13px; padding:7px 10px;
+    border:1px solid #d5d9e0; border-radius:8px; background:#fff; color:#2c3038;
+  }
+  .map-bar input { flex:1; min-width:240px; }
+  .map-bar label { display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--muted); }
+  .map-sep { width:1px; height:22px; background:#e3e6ea; }
+  .map-btn {
+    font-family:inherit; font-size:13px; font-weight:600; padding:7px 14px;
+    border:1px solid #d5d9e0; border-radius:8px; background:#fff; color:#2c3038; cursor:pointer;
+  }
+  .map-btn:hover { background:#f6f7f9; }
+  .map-btn.primary { background:#2563eb; border-color:#2563eb; color:#fff; }
+  .map-btn.primary:hover { background:#1d4ed8; }
+  .map-stage {
+    position:relative; background:#fbfbfc; border:1px solid #e3e6ea; border-radius:10px;
+    overflow:auto; max-height:70vh;
+  }
+  .map-stage canvas { display:block; }
+  .map-legend {
+    display:flex; flex-wrap:wrap; gap:14px; margin-top:10px;
+    font-size:11.5px; color:var(--muted);
+  }
+  .map-legend .sw {
+    display:inline-block; width:10px; height:10px; border-radius:3px;
+    margin-right:5px; vertical-align:-1px;
+  }
 </style>
 </head>
 <body>
@@ -145,7 +173,11 @@
     <div class="controls-row" style="margin-top:-6px;">
       <label>판정 방식
         <select id="modeInput">
-          <option value="segment" selected>구간 분할 (권장)</option>
+          <!-- 서버 기본값이 confirm 이다(path_tracker.DEFAULT_MODE).
+               여기 없으면 화면은 "구간 분할"로 보이는데 서버는 confirm 으로 도는
+               상태가 되어, 구간 분할이 깐깐해진 것처럼 보인다. -->
+          <option value="confirm" selected>2단계 확인 (권장 · 0.5초 대기 + 5dB)</option>
+          <option value="segment">구간 분할</option>
           <option value="trend">기존 (양끝 4개씩)</option>
         </select>
       </label>
@@ -190,14 +222,43 @@
      그래서 이 카드만 위쪽 컨테이너 밖으로 빼서 넓게 쓴다. -->
 <div class="wide-container">
   <div class="card">
-    <h2>🗺️ 지도 · 경로 탐색</h2>
+    <h2>🗺️ 지도 · 목적지 말하기</h2>
     <div class="hint">
-      지도에서 경로를 탐색한 뒤 "이 순서를 모니터 경로로 보내기"를 누르면, 경로상 비콘의 BLE 이름을
-      위 비콘 목록과 대조해서 <b>거쳐가는 순서대로</b> 경로에 자동 등록합니다.
-      지도 비콘에 BLE 이름(예: ESP32-Beacon1)을 먼저 지정해두셔야 합니다.
+      이 지도는 <b>서버가 안내에 실제로 쓰는 그래프</b>를 그대로 그립니다 — 관리자웹이 저장한
+      이동영역에서 서버가 노드를 만들어 씁니다. 편집(이동영역·비콘·목적지)은 관리자웹에서 합니다.
     </div>
-    <div id="mapMatchStatus" class="hint" style="margin-bottom:10px;">지도에서 경로를 탐색해주세요.</div>
-    <!--__MAP_TOOL_MARKUP__-->
+
+    <div class="map-bar">
+      <select id="navFloorSelect"></select>
+      <span class="map-sep"></span>
+      <label>출발
+        <select id="navFromSelect" title="비워두면 지금 가장 세게 잡히는 비콘에서 출발합니다"></select>
+      </label>
+      <input type="text" id="navSttInput" placeholder='목적지를 말하듯 입력 — 예: "사백칠호 가줘"'>
+      <button id="navSttBtn" class="map-btn primary">보내기</button>
+      <button id="navClearBtn" class="map-btn">지우기</button>
+    </div>
+    <div class="hint" style="margin:-4px 0 10px;">
+      입력한 문장은 폰에서 온 음성(STT)과 <b>똑같은 메시지</b>로 서버에 갑니다.
+      서버가 목적지를 해석하고 경로까지 만들어 추적을 시작합니다.
+    </div>
+
+    <div id="navStatus" class="hint" style="margin-bottom:10px;">층을 고르면 지도를 불러옵니다.</div>
+    <div id="navRouteChips" class="chips" style="margin-bottom:10px;"></div>
+    <div class="map-stage">
+      <canvas id="navCanvas"></canvas>
+    </div>
+    <div class="map-legend">
+      <span><i class="sw" style="background:#93c5fd"></i>이동 영역</span>
+      <span><i class="sw" style="background:#7c3aed"></i>노드</span>
+      <span><i class="sw" style="background:#f59e0b"></i>맞은편 노드</span>
+      <span style="color:#059669;">┄ 건너기 연결</span>
+      <span><i class="sw" style="background:#0d9488"></i>비콘</span>
+      <span><i class="sw" style="background:#ea580c"></i>경로상 비콘</span>
+      <span><i class="sw" style="background:#dc2626"></i>경로</span>
+      <span><i class="sw" style="background:#2563eb"></i>현재 위치</span>
+      <span><i class="sw" style="background:#16a34a"></i>목적지</span>
+    </div>
   </div>
 </div>
 <script>
@@ -533,6 +594,8 @@
     if (data && data.type === 'measure') { handleMeasureControl(data); return; }
     // 서버가 판단한 경로 안내 메시지
     if (data && data.type === 'guide') { handleGuideMessage(data); return; }
+    // 목적지 해석 결과 — 서버가 경로까지 만들어서 실어 보낸다.
+    if (data && data.type === 'destination') { navHandleDestination(data); return; }
 
     const now = new Date().toLocaleTimeString('ko-KR');
     let pickerDirty = false;
@@ -571,12 +634,14 @@
       }
     }
 
-    if (pickerDirty) { renderPicker(); renderPathBuilder(); pushBeaconListToMap(); }
+    if (pickerDirty) { renderPicker(); renderPathBuilder(); }
     renderTable();
     syncLiveChart();
     // 서버가 실어 보낸 판정 결과를 그대로 표시 (판정은 서버에서만 함)
     renderTrackState(data._track);
-    pushCurrentBeaconToMap(data._track);   // 지도에도 현재 위치 표시
+    navUpdateCurrent(data._track);         // 지도에도 현재 위치 표시
+    // 경로는 추적과 별개로 온다 — 비콘이 부족해 추적이 안 걸려도 경로는 그린다.
+    navSyncServerRoute(data._routeSeq);
   };
 
   // 폰에서 보낸 측정 제어 메시지 처리.
@@ -679,7 +744,7 @@
     }
   }
 
-  const mapMatchStatus = document.getElementById('mapMatchStatus');
+  const navStatus = document.getElementById('navStatus');
 
   // 이름에서 "Beacon" 뒤에 오는 번호를 뽑는다. ESP32-Beacon3-tx -> 3
   // "Beacon" 뒤라는 조건이 중요함: 그냥 첫 숫자를 쓰면 "ESP32"의 32가 잡힘.
@@ -721,71 +786,393 @@
     });
 
     if (matched.length < 2) {
-      mapMatchStatus.innerHTML =
+      navStatus.innerHTML =
         `<span style="color:#c0392b;">경로에 등록할 비콘이 부족합니다 — 일치 ${matched.length}개.</span> ` +
         (missing.length ? `못 찾은 이름: ${missing.map(m => m.bleName).join(', ')}` : '') +
-        ' (지금 잡히고 있는 비콘의 이름과 지도에 적은 이름이 같아야 합니다)';
+        ' (지금 잡히고 있는 비콘의 이름과 등록된 이름이 같아야 합니다)';
       return;
     }
 
-    // 매칭된 것만 지도상의 통과 순서 그대로 경로 슬롯에 채운다.
+    // 매칭된 것만 통과 순서 그대로 경로 슬롯에 채운다.
     // 이 차례가 곧 안내 번호(1, 2, 3...)가 된다.
     pathSlots = matched.map(m => m.key);
     renderPathBuilder();
-
-    const chain = matched.map((m, i) => `<b>${i + 1}번</b> ${shortName(m.key)}`).join(' → ');
-    mapMatchStatus.innerHTML =
-      `<span style="color:#1e8e4a;">경로 자동 반영됨 (${matched.length}개):</span> ${chain}`
-      + (missing.length
-          ? `<br><span style="color:#b9770e;">못 찾아서 뺀 비콘: ${missing.map(m => m.bleName).join(', ')}</span>`
-          : '')
-      + '<br>위의 "추적 시작"을 누르면 이 순서로 안내가 시작됩니다.';
   }
 
-  // 지도 도구가 같은 페이지 안에 합쳐져 있으므로 창 간 통신(postMessage) 대신 직접 호출로 주고받는다.
-  // 지도 쪽 스크립트는 IIFE로 감싸져 있어 전역 이름이 섞이지 않고, 이 브릿지로만 연결된다.
-  window.__monitorBridge = {
-    receive(msg) {
-      if (!msg || msg.source !== 'mapTool') return;
-      if (msg.event === 'beaconSequence' && Array.isArray(msg.beacons)) {
-        applyMapSequence(msg.beacons);
-      }
-    }
+  // ====================================================================
+  // 지도 — 서버가 주는 그래프를 그린다
+  //
+  // 예전에는 지도 편집 도구 3,200줄을 이 페이지에 통째로 합쳐 넣었다. 그 도구는
+  // 자기 알고리즘으로 노드를 만들었는데, 관리자웹이 만든 것과 눈에 띄게 달랐다.
+  // 이제 노드 생성기가 서버에 있으므로(app/nav/path_nodes.py) 그 결과를 받아
+  // 그린다. **화면에 뜨는 것과 안내에 쓰는 것이 같은 값**이라 갈라질 수가 없다.
+  //
+  // 여기서 편집은 하지 않는다. 이동영역·비콘·목적지는 전부 관리자웹에서 넣는다.
+  // ====================================================================
+  const DESIGN_W = 900;                    // 서버가 주는 좌표의 기준 폭
+
+  const navCanvas = document.getElementById('navCanvas');
+  const navFloorSelect = document.getElementById('navFloorSelect');
+  const navFromSelect = document.getElementById('navFromSelect');
+  const navSttInput = document.getElementById('navSttInput');
+  const navRouteChips = document.getElementById('navRouteChips');
+
+  const nav = {
+    floorId: null,
+    project: null,      // 평면도·마스크·비콘·목적지
+    graph: null,        // 노드·연결
+    image: null,        // 평면도 이미지
+    mask: null,         // 이동영역 이미지
+    routeNodeIds: [],   // 경로가 지나는 노드
+    routeBeacons: [],   // 경로상 비콘 id (표시용)
+    current: null,      // 서버가 보는 현재 비콘 이름
+    currentActive: false,
+    destination: null,  // 목적지 랜드마크 id
   };
 
-  function sendToMap(msg) {
-    if (typeof window.__mapToolReceive === 'function') window.__mapToolReceive(msg);
+  function navSetStatus(html, kind) {
+    const color = kind === 'bad' ? '#c0392b' : kind === 'ok' ? '#1e8e4a' : '';
+    navStatus.innerHTML = color ? `<span style="color:${color};">${html}</span>` : html;
   }
 
-  // 지도 쪽에서 이름을 직접 타이핑하면 오타가 나도 매칭 실패로만 나타나 원인을 찾기 어렵다.
-  // 지금 잡히고 있는 비콘 이름을 지도에 계속 알려줘서 목록에서 고를 수 있게 한다.
-  let sentBeaconSig = '';
-
-  function pushBeaconListToMap() {
-    const names = knownKeys.map(shortName);
-    const sig = names.join('|');
-    if (sig === sentBeaconSig) return;   // 바뀐 게 없으면 보내지 않음
-    sentBeaconSig = sig;
-    sendToMap({ source: 'monitor', event: 'beaconList', names });
-  }
-
-  // 서버가 판단한 현재 위치를 지도에 표시. 바뀔 때만 보내서 불필요한 다시 그리기를 줄인다.
-  let sentCurrentBeacon = null;
-
-  function pushCurrentBeaconToMap(track) {
-    // 측정 중이 아니어도(추적 경로만 등록된 상태) 서버가 보는 현재 노드를 지도에 보여준다.
-    // 측정 중일 때만 보내면 "추적 시작만 누른" 상태에서 아무 표시도 안 떠서 고장처럼 보임.
-    // 대신 active 여부를 같이 보내서 지도가 "대기 중"으로 구분해 표시하게 한다.
-    const name = (track && track.enabled && track.current) ? shortName(track.current) : null;
-    const active = !!(track && track.active);
-    const sig = name === null ? '' : `${name}#${track.number}#${active}`;
-    if (sig === sentCurrentBeacon) return;
-    sentCurrentBeacon = sig;
-    sendToMap({
-      source: 'monitor', event: 'currentBeacon',
-      name, number: (track && track.number) || null, active,
+  function loadImage(src) {
+    return new Promise((resolve) => {
+      if (!src) { resolve(null); return; }
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = () => resolve(null);
+      im.src = src;
     });
   }
+
+  async function navLoadFloors() {
+    let floors = [];
+    try {
+      const res = await fetch('/map-db/floors');
+      if (res.ok) floors = (await res.json()).floors || [];
+    } catch (err) {
+      navSetStatus('서버에서 층 목록을 받지 못했습니다: ' + err.message, 'bad');
+      return;
+    }
+    const usable = floors.filter(f => f.hasFloorplan);
+    if (!usable.length) {
+      navSetStatus(
+        floors.length
+          ? `등록된 층이 ${floors.length}개 있지만 설계도가 올라간 층이 없습니다. 관리자웹에서 평면도를 올려주세요.`
+          : '등록된 층이 없습니다. 관리자웹에서 건물·층을 먼저 만들어주세요.', 'bad');
+      return;
+    }
+    navFloorSelect.innerHTML = '';
+    floors.forEach(f => {
+      const opt = document.createElement('option');
+      opt.value = f.floorId;
+      const lacks = [];
+      if (!f.hasFloorplan) lacks.push('설계도 없음');
+      else if (!f.hasMask) lacks.push('이동영역 없음');
+      else if (!f.hasScale) lacks.push('축척 없음');
+      opt.textContent = f.label + (lacks.length ? ` (${lacks.join(', ')})` : '');
+      opt.disabled = !f.hasFloorplan;
+      navFloorSelect.appendChild(opt);
+    });
+    navFloorSelect.value = usable[0].floorId;
+    await navLoadFloor(usable[0].floorId);
+  }
+
+  async function navLoadFloor(floorId) {
+    nav.floorId = floorId;
+    nav.routeNodeIds = []; nav.routeBeacons = []; nav.destination = null;
+    navRouteChips.innerHTML = '';
+    navSetStatus('지도를 불러오는 중...');
+
+    let project, graph = null;
+    try {
+      const r = await fetch(`/map-db/floors/${encodeURIComponent(floorId)}/project`);
+      project = await r.json();
+      if (!r.ok) { navSetStatus(project.error || '지도를 불러오지 못했습니다.', 'bad'); return; }
+    } catch (err) {
+      navSetStatus('지도를 불러오지 못했습니다: ' + err.message, 'bad'); return;
+    }
+    // 그래프는 없을 수 있다(이동영역이나 축척이 아직이면). 지도는 그리되 이유를 남긴다.
+    let graphError = null;
+    try {
+      const r = await fetch(`/map-db/floors/${encodeURIComponent(floorId)}/graph`);
+      const body = await r.json();
+      if (r.ok) graph = body; else graphError = body.error;
+    } catch (err) { graphError = err.message; }
+
+    nav.project = project;
+    nav.graph = graph;
+    nav.image = await loadImage(project.imageDataUrl);
+    nav.mask = await loadImage(project.maskDataUrl);
+
+    // 출발 비콘 목록 — 비워두면 지금 가장 세게 잡히는 것에서 출발한다.
+    navFromSelect.innerHTML = '<option value="">자동 (가장 센 비콘)</option>';
+    (project.beacons || []).forEach(b => {
+      const opt = document.createElement('option');
+      opt.value = b.id;
+      opt.textContent = b.bleName ? `${b.id} · ${b.bleName}` : b.id;
+      navFromSelect.appendChild(opt);
+    });
+
+    navDraw();
+    navPushFloorToServer();
+
+    const counts = `비콘 ${(project.beacons || []).length}개, 목적지 ${(project.landmarks || []).length}개`
+      + (graph ? `, 노드 ${graph.nodes.length}개` : '');
+    if (graphError) navSetStatus(`${counts} — 경로 그래프 없음: ${graphError.split('\n')[0]}`, 'bad');
+    else navSetStatus(`${project.label} — ${counts} · <b>폰이 말하는 목적지도 이 층에서 찾습니다</b>`, 'ok');
+  }
+
+  function navDraw() {
+    const p = nav.project;
+    if (!p || !nav.image) return;
+
+    // 캔버스는 설계도(900) 좌표를 그대로 쓰고, 화면 배율만 따로 잡는다.
+    const scale = 2;                                  // 선명하게 (레티나 대응 겸)
+    const w = DESIGN_W;
+    const h = Math.round(nav.image.height / nav.image.width * DESIGN_W);
+    navCanvas.width = w * scale;
+    navCanvas.height = h * scale;
+    navCanvas.style.width = w + 'px';
+    navCanvas.style.height = h + 'px';
+
+    const c = navCanvas.getContext('2d');
+    c.setTransform(scale, 0, 0, scale, 0, 0);
+    c.clearRect(0, 0, w, h);
+    c.drawImage(nav.image, 0, 0, w, h);
+
+    if (nav.mask) { c.globalAlpha = 0.42; c.drawImage(nav.mask, 0, 0, w, h); c.globalAlpha = 1; }
+
+    const g = nav.graph;
+    if (g) {
+      const byId = new Map(g.nodes.map(n => [n.id, n]));
+      const onRoute = new Set(nav.routeNodeIds);
+
+      // 연결 — 건너기는 초록 점선으로 구분한다(벽에서 손을 떼는 구간이라 성격이 다름)
+      g.edges.forEach(e => {
+        const a = byId.get(e.a), b = byId.get(e.b);
+        if (!a || !b) return;
+        const both = onRoute.has(e.a) && onRoute.has(e.b);
+        c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y);
+        c.setLineDash(e.type === 'cross' ? [4, 3] : []);
+        c.strokeStyle = both ? '#dc2626' : (e.type === 'cross' ? '#059669' : '#7c3aed');
+        c.lineWidth = both ? 3 : 1.2;
+        c.globalAlpha = both ? 1 : 0.55;
+        c.stroke();
+      });
+      c.setLineDash([]); c.globalAlpha = 1;
+
+      g.nodes.forEach(n => {
+        c.beginPath(); c.arc(n.x, n.y, onRoute.has(n.id) ? 3.5 : 2.4, 0, Math.PI * 2);
+        c.fillStyle = onRoute.has(n.id) ? '#dc2626'
+          : n.type === 'facing' ? '#f59e0b' : '#7c3aed';
+        c.fill();
+      });
+    }
+
+    // 비콘
+    const routeSet = new Set(nav.routeBeacons);
+    const curName = nav.current;
+    (p.beacons || []).forEach(b => {
+      const isCur = curName && b.bleName && shortName(b.bleName) === curName;
+      const inRoute = routeSet.has(b.id);
+      c.beginPath(); c.arc(b.x, b.y, isCur ? 7 : 4.5, 0, Math.PI * 2);
+      c.fillStyle = isCur ? (nav.currentActive ? '#2563eb' : '#64748b')
+        : inRoute ? '#ea580c' : '#0d9488';
+      c.fill();
+      c.strokeStyle = '#fff'; c.lineWidth = 1.4; c.stroke();
+      if (isCur || inRoute) {
+        c.font = '600 10px -apple-system, sans-serif';
+        c.textBaseline = 'bottom';
+        const label = isCur ? `📍${b.id}` : b.id;
+        const tw = c.measureText(label).width;
+        c.fillStyle = 'rgba(255,255,255,0.85)';
+        c.fillRect(b.x - tw / 2 - 2, b.y - 9 - 11, tw + 4, 13);
+        c.fillStyle = isCur ? '#1d4ed8' : '#9a3412';
+        c.fillText(label, b.x - tw / 2, b.y - 9);
+      }
+    });
+
+    // 목적지
+    (p.landmarks || []).forEach(lm => {
+      const isDest = nav.destination && lm.id === nav.destination;
+      c.beginPath(); c.arc(lm.x, lm.y, isDest ? 7 : 3.5, 0, Math.PI * 2);
+      c.fillStyle = isDest ? '#16a34a' : (lm.isConnector ? '#2563eb' : '#94a3b8');
+      c.fill();
+      if (isDest) {
+        c.strokeStyle = '#fff'; c.lineWidth = 2; c.stroke();
+        c.font = '600 11px -apple-system, sans-serif';
+        c.textBaseline = 'bottom';
+        const tw = c.measureText(lm.name).width;
+        c.fillStyle = 'rgba(255,255,255,0.9)';
+        c.fillRect(lm.x - tw / 2 - 3, lm.y - 11 - 12, tw + 6, 14);
+        c.fillStyle = '#166534';
+        c.fillText(lm.name, lm.x - tw / 2, lm.y - 11);
+      }
+    });
+  }
+
+  // 고른 층을 서버에 고정한다.
+  //
+  // 이걸 안 하면 **폰이 말한 목적지는 여기서 고른 층과 상관없이 찾아진다.**
+  // 폰은 자기 메시지에 floorId 를 안 싣고, 서버는 잡히는 비콘의 major 로 층을
+  // 정하기 때문이다. 펌웨어를 아직 다 안 구웠으면 그 값이 실제 층과 다르다.
+  //
+  // 서버 전체에 걸리는 값이라 폰이 여러 대면 다 같은 층으로 본다 — 실측용이다.
+  function navPushFloorToServer() {
+    if (!nav.floorId || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: 'guide', event: 'setFloor', floorId: nav.floorId }));
+  }
+
+  // 연결이 끊겼다 붙으면 다시 걸어준다. 서버를 재시작하면 고정이 풀리기 때문.
+  ws.addEventListener('open', () => setTimeout(navPushFloorToServer, 100));
+
+  // ---- 목적지 말하기 ----
+  //
+  // 입력한 문장은 **폰에서 온 음성(STT)과 똑같은 메시지**로 나간다. 목록에서 고르게
+  // 하면 정작 확인해야 할 구간(말한 문장이 목적지에 붙는가)을 건너뛰게 된다.
+  function navSendDestination() {
+    const text = navSttInput.value.trim();
+    if (!text) { navSttInput.focus(); return; }
+    if (ws.readyState !== WebSocket.OPEN) {
+      navSetStatus('서버와 연결되어 있지 않습니다.', 'bad'); return;
+    }
+    // floorId 를 같이 보낸다 — 안 보내면 서버가 잡히는 비콘으로 층을 알아내는데,
+    // 폰이 안 붙어 있으면 알 방법이 없다. 그러면 목적지를 못 찾는다.
+    ws.send(JSON.stringify({
+      type: 'destination', event: 'resolve', text,
+      requestId: 'monitor-' + Date.now(),
+      floorId: nav.floorId || null,
+      fromBeacon: navFromSelect.value || null,
+    }));
+    navSetStatus(`"${text}" 를 서버에 보냈습니다 — 해석 중...`);
+  }
+
+  document.getElementById('navSttBtn').onclick = navSendDestination;
+  navSttInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') navSendDestination(); });
+  navFloorSelect.addEventListener('change', () => navLoadFloor(navFloorSelect.value));
+  document.getElementById('navClearBtn').onclick = () => {
+    nav.routeNodeIds = []; nav.routeBeacons = []; nav.destination = null;
+    navRouteChips.innerHTML = '';
+    navSttInput.value = '';
+    navDraw();
+    navSetStatus('경로 표시를 지웠습니다.');
+  };
+
+  // 서버가 목적지·경로 응답을 보내면 지도에 반영한다.
+  function navHandleDestination(msg) {
+    if (msg.event === 'ambiguous') {
+      const names = (msg.candidates || []).map(c => c.name).join(', ');
+      navSetStatus(`되묻는 중 — 후보: ${names}. 위 입력창에 답하세요(예: "두 번째").`);
+      return;
+    }
+    if (msg.event === 'notFound') {
+      navSetStatus(`목적지를 찾지 못했습니다. 들은 말: "${msg.heard}" [${msg.source}]`, 'bad');
+      return;
+    }
+    if (msg.event !== 'resolved') return;
+
+    nav.destination = msg.landmark ? msg.landmark.id : null;
+
+    if (msg.routeError) {
+      nav.routeNodeIds = []; nav.routeBeacons = [];
+      navRouteChips.innerHTML = '';
+      navDraw();
+      navSetStatus(
+        `목적지는 "${msg.landmark.name}" 로 알아들었지만 경로를 못 만들었습니다 — ${msg.routeError.split('\n')[0]}`,
+        'bad');
+      return;
+    }
+    // 경로는 폰이 안 붙어 있어도 온다 — 경로를 만드는 것과 추적을 거는 것은 다른 일이다.
+    // 지금 잡히는 비콘이 부족하면 추적만 안 걸고, 경로는 그대로 그린다.
+    const r = msg.route || {};
+    nav.routeBeacons = r.beacons || [];
+    const missing = new Set(r.missing || []);
+    navRouteChips.innerHTML = (r.beacons || []).map((b, i) => {
+      const off = missing.has(b);
+      return `<span class="chip"${off ? ' style="opacity:.55;border-style:dashed;"' : ''}>`
+        + `${i + 1}. ${b}${off ? ' <span style="color:#b9770e;">·안잡힘</span>' : ''}</span>`;
+    }).join('');
+
+    const head = `"${msg.heard}" → <b>${msg.landmark.name}</b> [${msg.source}] · `
+      + `${r.distanceM}m / ${r.seconds}초 / 비콘 ${(r.beacons || []).length}개`
+      + (r.crossings ? ` / 건너기 ${r.crossings}회` : '');
+    if (msg.tracking) {
+      navSetStatus(head + ' · <b>추적 시작됨</b>', 'ok');
+    } else {
+      navSetStatus(
+        head + `<br><span style="color:#b9770e;">${msg.trackingNote || '추적은 걸지 않았습니다'}</span>`
+        + '<br>경로는 지도에 그렸습니다 — 폰이 붙으면 그때 추적이 걸립니다.');
+    }
+
+    // 경로가 지나는 노드를 받아 굵게 그린다. 목적지 id 로 다시 물어본다 —
+    // 서버가 이미 만든 경로와 같은 답이 나온다(같은 그래프·같은 다익스트라).
+    if (nav.floorId && nav.destination) {
+      const from = r.from ? `&from=${encodeURIComponent(r.from)}` : '';
+      fetch(`/map-db/floors/${encodeURIComponent(nav.floorId)}/route?to=${encodeURIComponent(nav.destination)}${from}`)
+        .then(res => res.ok ? res.json() : null)
+        .then(body => { if (body) { nav.routeNodeIds = body.nodeIds || []; navDraw(); } })
+        .catch(() => {});
+    }
+    navDraw();
+  }
+
+  // 폰이 말해서 정해진 경로를 화면에 그린다.
+  //
+  // 목적지 응답은 **물어본 폰에게만** 간다(되묻기 후보가 다른 연결로 새면 안 되므로).
+  // 그래서 여기서는 그 메시지를 못 본다. 대신 서버가 들고 있는 경로를 가져온다.
+  //
+  // 언제 가져갈지는 RSSI 에 실려 오는 routeSeq 로 안다. 경로 자체를 매 메시지에
+  // 실으면 초당 열 번씩 노드 수백 개를 다시 받게 된다.
+  let navLastRouteSeq = null;
+
+  async function navSyncServerRoute(seq) {
+    if (seq == null || seq === navLastRouteSeq) return;
+    navLastRouteSeq = seq;
+    try {
+      const res = await fetch('/map-db/current-route');
+      const r = res.ok ? await res.json() : null;
+      if (!r) return;
+
+      // 다른 층 경로면 그 층으로 옮겨 그린다 — 폰이 있는 층과 화면이 다를 수 있다.
+      if (r.floorId && r.floorId !== nav.floorId) {
+        navFloorSelect.value = r.floorId;
+        await navLoadFloor(r.floorId);
+      }
+      nav.routeNodeIds = r.nodeIds || [];
+      nav.routeBeacons = r.beacons || [];
+      nav.destination = r.destinationId || null;
+
+      const missing = new Set(r.missing || []);
+      navRouteChips.innerHTML = (r.beacons || []).map((b, i) => {
+        const off = missing.has(b);
+        return `<span class="chip"${off ? ' style="opacity:.55;border-style:dashed;"' : ''}>`
+          + `${i + 1}. ${b}${off ? ' <span style="color:#b9770e;">·안잡힘</span>' : ''}</span>`;
+      }).join('');
+      navDraw();
+      navSetStatus(
+        `📱 폰이 말함: "${r.heard}" → <b>${r.destinationName}</b> · `
+        + `${r.from} 에서 출발 · ${r.distanceM}m / ${r.seconds}초 / 비콘 ${(r.beacons || []).length}개`
+        + (r.crossings ? ` / 건너기 ${r.crossings}회` : ''), 'ok');
+    } catch (err) {
+      console.log('경로 가져오기 실패:', err.message);
+    }
+  }
+
+  // 서버가 보는 현재 위치를 지도에 표시. 바뀔 때만 다시 그린다.
+  let navLastCurrent = '';
+  function navUpdateCurrent(track) {
+    const name = (track && track.enabled && track.current) ? shortName(track.current) : null;
+    const active = !!(track && track.active);
+    const sig = `${name}#${active}`;
+    if (sig === navLastCurrent) return;
+    navLastCurrent = sig;
+    nav.current = name;
+    nav.currentActive = active;
+    navDraw();
+  }
+
+  navLoadFloors();
 
   // ---- 서버 음성 안내 제어 ----
   // 판정을 서버가 하게 경로를 넘겨준다. 이렇게 해야 이 페이지를 닫아도 폰 안내가 계속 동작함.
@@ -807,6 +1194,27 @@
       segments: parseInt(document.getElementById('segmentsInput').value, 10) || 5,
     }));
   };
+
+  // 판정 설정을 서버에 알린다.
+  //
+  // 목적지로 거는 경로는 이 값을 안 넘기면 서버 기본값(confirm)으로만 돈다.
+  // 그러면 화면은 "구간 분할"을 가리키는데 실제 판정은 confirm 이라, 구간 분할이
+  // 갑자기 깐깐해진 것처럼 보인다.
+  function pushTuning() {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({
+      type: 'guide', event: 'setTuning',
+      threshold: parseFloat(document.getElementById('threshInput').value) || 2.5,
+      minNext: parseFloat(document.getElementById('minNextInput').value) || -85,
+      mode: document.getElementById('modeInput').value,
+      windowMs: Math.round((parseFloat(document.getElementById('segWindowInput').value) || 2.0) * 1000),
+      segments: parseInt(document.getElementById('segmentsInput').value, 10) || 5,
+    }));
+  }
+
+  ['modeInput', 'threshInput', 'minNextInput', 'segWindowInput', 'segmentsInput']
+    .forEach(id => document.getElementById(id)?.addEventListener('change', pushTuning));
+  ws.addEventListener('open', () => setTimeout(pushTuning, 120));
 
   // 기존 방식은 창·구간 설정을 쓰지 않으므로 입력칸을 흐리게 해서 혼동을 막는다
   function syncModeInputs() {
@@ -1167,12 +1575,6 @@
   // renderStepStatus()가 pathRegistered·measuring 같은 let 변수를 읽는데,
   // 선언보다 먼저 부르면 TDZ 오류가 나면서 이후 스크립트가 통째로 죽는다.
   renderStepStatus();
-</script>
-
-<!-- 지도 도구 스크립트. 모니터 스크립트 뒤에 둬야 __monitorBridge가 이미 준비된 상태로 시작한다.
-     (지도 쪽은 IIFE라 이 페이지의 변수와 섞이지 않는다) -->
-<script>
-/*__MAP_TOOL_SCRIPT__*/
 </script>
 </body>
 </html>
