@@ -128,14 +128,17 @@ _SYSTEM = """너는 실내 길안내 시스템의 목적지 해석기다.
 #
 # 그래서 실제 건물에 없는 가상 이름(도서관·201호)만 쓴다.
 # 동의어를 하나도 안 가르치므로, 동의어가 맞으면 그건 모델이 원래 아는 것이다.
-_DEMO = ('장소 목록:\n- A1: 201\n- A2: 202\n'
-         '- A3: 도서관 1\n- A4: 도서관 2\n\n사용자: ')
+#
+# id 는 실제 요청과 **같은 모양(L1, L2 …)** 을 쓴다. 예전에는 여기만 `A1` 이고
+# 실제로는 UUID 를 보내서, 모델이 배운 것과 다른 일을 하게 돼 있었다.
+_DEMO = ('장소 목록:\n- L1: 201\n- L2: 202\n'
+         '- L3: 도서관 1\n- L4: 도서관 2\n\n사용자: ')
 
 _FEWSHOT = [
     (_DEMO + '"201호로 가줘"',
-     '{"ids": ["A1"], "why": "방 번호 201"}'),
+     '{"ids": ["L1"], "why": "방 번호 201"}'),
     (_DEMO + '"도서관"',
-     '{"ids": ["A3", "A4"], "why": "2곳이라 좁혀지지 않음"}'),
+     '{"ids": ["L3", "L4"], "why": "2곳이라 좁혀지지 않음"}'),
     (_DEMO + '"수영장"',
      '{"ids": [], "why": "목록에 없음"}'),
 ]
@@ -154,22 +157,57 @@ _CHOOSE_SYSTEM = """여러 곳을 순서대로 읽어주고 하나를 고르라�
 반드시 아래 JSON 형식으로만 답한다. 다른 말은 쓰지 않는다.
 {"ids": ["id"], "why": "짧은 이유"}"""
 
-_CHOOSE_DEMO = ('후보:\n1) B1: 도서관 1\n2) B2: 자료실\n3) B3: 도서관 2\n\n대답: ')
+_CHOOSE_DEMO = ('후보:\n1) L1: 도서관 1\n2) L2: 자료실\n3) L3: 도서관 2\n\n대답: ')
 
 _CHOOSE_FEWSHOT = [
-    (_CHOOSE_DEMO + '"자료실"', '{"ids": ["B2"], "why": "이름으로 지목"}'),
-    (_CHOOSE_DEMO + '"세 번째"', '{"ids": ["B3"], "why": "순서 3"}'),
+    (_CHOOSE_DEMO + '"자료실"', '{"ids": ["L2"], "why": "이름으로 지목"}'),
+    (_CHOOSE_DEMO + '"세 번째"', '{"ids": ["L3"], "why": "순서 3"}'),
     (_CHOOSE_DEMO + '"글쎄"', '{"ids": [], "why": "무엇을 고른 것인지 알 수 없음"}'),
 ]
 
 
+# ---------------------------------------------------------------------------
+# 모델에게 주는 id 는 짧은 번호다
+#
+# DB 의 랜드마크 id 는 UUID 다. 그걸 그대로 목록에 실어 보내면 모델이 답을 낼 때
+# **36자짜리 16진 문자열을 옮겨 적어야 한다.** 스무 줄이 전부 비슷하게 생겼으니
+# 한 줄 어긋나게 집기 딱 좋고, 실제로 그렇게 틀렸다:
+#
+#     "411호로 가죠"  →  410호        ← 바로 윗줄
+#
+# 게다가 few-shot 은 `A1`, `A2` 같은 짧은 id 로 형식을 가르쳐 놓고 정작 실제
+# 요청에서는 UUID 를 주고 있었다. 모델 입장에서는 배운 것과 다른 일을 시킨 셈이다.
+#
+# 그래서 여기서 `L1`, `L2` … 로 갈아 끼우고 돌아온 답을 다시 UUID 로 되돌린다.
+# 프롬프트 길이도 크게 줄어서(줄당 36자 → 2~3자) 응답이 그만큼 빨라진다.
+#
+# **번호는 목록 순서일 뿐 의미가 없다.** 목록이 바뀌면 같은 곳이라도 번호가
+# 달라진다 — 그래서 이 번호는 밖으로 절대 나가지 않는다. 캐시 키도 UUID 로 만든다.
+# ---------------------------------------------------------------------------
+def _alias(landmarks: list[Landmark]) -> dict[str, Landmark]:
+    """`{"L1": 랜드마크, ...}` — 프롬프트와 응답 해석이 **같이** 쓰는 표.
+
+    번호가 진짜 id 와 겹치면 접두사를 바꾼다. 겹친 채로 두면 모델이 `L11` 을
+    냈을 때 그것이 "목록 11번째"인지 "id 가 L11 인 곳"인지 알 수 없고, 둘이
+    다른 장소면 **조용히 엉뚱한 곳으로 안내한다.** 구조로 막을 수 있는 것을
+    확률에 맡기지 않는다.
+    """
+    real = {lm.id for lm in landmarks}
+    prefix = "L"
+    while any(f"{prefix}{i + 1}" in real for i in range(len(landmarks))):
+        prefix = "#" + prefix
+    return {f"{prefix}{i + 1}": lm for i, lm in enumerate(landmarks)}
+
+
 def _build_choose_prompt(text: str, candidates: list[Landmark]) -> str:
-    listing = "\n".join(f"{i + 1}) {c.id}: {c.name}" for i, c in enumerate(candidates))
+    listing = "\n".join(f"{i + 1}) {key}: {lm.name}"
+                        for i, (key, lm) in enumerate(_alias(candidates).items()))
     return f'후보:\n{listing}\n\n대답: "{text}"'
 
 
 def _build_user_prompt(text: str, landmarks: list[Landmark]) -> str:
-    listing = "\n".join(f"- {lm.id}: {lm.name}" for lm in landmarks)
+    listing = "\n".join(f"- {key}: {lm.name}"
+                        for key, lm in _alias(landmarks).items())
     return f'장소 목록:\n{listing}\n\n사용자: "{text}"'
 
 
@@ -295,7 +333,11 @@ def _call_llm(text: str, landmarks: list[Landmark], mode: str = "resolve") -> st
 # 응답 해석과 검증
 # ---------------------------------------------------------------------------
 def _parse_ids(raw: str, landmarks: list[Landmark]) -> list[str] | None:
-    """LLM 응답에서 id 목록을 뽑는다. 목록에 없는 id는 버린다."""
+    """LLM 응답에서 id 목록을 뽑아 **진짜 랜드마크 id 로 되돌린다.**
+
+    모델에게는 `L1`, `L2` 로 줬으므로 여기서 UUID 로 바꾼다. 목록에 없는 것은
+    버린다 — 지어내기를 프롬프트가 아니라 구조로 막는 자리다.
+    """
     if not raw:
         return None
 
@@ -312,12 +354,16 @@ def _parse_ids(raw: str, landmarks: list[Landmark]) -> list[str] | None:
     if not isinstance(ids, list):
         return None
 
-    known = {lm.id for lm in landmarks}
+    # `L3` → 진짜 id. 모델이 UUID 를 그대로 냈다면(있을 수 없지만) 그것도 받는다.
+    alias = _alias(landmarks)
+    real = {lm.id for lm in landmarks}
     clean, dropped = [], []
     for i in ids:
         i = str(i).strip()
-        if i in known and i not in clean:
-            clean.append(i)
+        hit = alias[i].id if i in alias else (i if i in real else None)
+        if hit is not None:
+            if hit not in clean:
+                clean.append(hit)
         elif i:
             dropped.append(i)
 

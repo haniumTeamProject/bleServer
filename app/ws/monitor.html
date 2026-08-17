@@ -640,6 +640,8 @@
     // 서버가 실어 보낸 판정 결과를 그대로 표시 (판정은 서버에서만 함)
     renderTrackState(data._track);
     navUpdateCurrent(data._track);         // 지도에도 현재 위치 표시
+    // 폰이 비콘으로 층을 확정했으면 지도도 그 층으로 옮긴다.
+    navSyncFloor(data._floorId);
     // 경로는 추적과 별개로 온다 — 비콘이 부족해 추적이 안 걸려도 경로는 그린다.
     navSyncServerRoute(data._routeSeq);
   };
@@ -1117,6 +1119,29 @@
     navDraw();
   }
 
+  // 폰이 잡은 비콘으로 정해진 층을 따라간다.
+  //
+  // 경로가 생길 때까지 기다리면 늦다 — 목적지를 말하기 **전**에 이미 지도가 그
+  // 층이어야 "지금 어디 있는지"가 화면에 뜬다. 폰이 4층에 있는데 화면이 1층이면
+  // 현재 위치 점이 엉뚱한 데 찍히거나 아예 안 뜬다.
+  //
+  // `navFloorSelect.value = ...` 만 하면 change 이벤트가 안 뜬다(사람이 고른 게
+  // 아니라서). 그래서 navLoadFloor 를 직접 부른다.
+  let navFloorBusy = false;
+
+  async function navSyncFloor(floorId) {
+    if (!floorId || floorId === nav.floorId || navFloorBusy) return;
+    // 목록에 없는 층이면 무시한다 — 설계도가 안 올라간 층일 수 있다.
+    if (!Array.from(navFloorSelect.options).some(o => o.value === floorId)) return;
+    navFloorBusy = true;
+    try {
+      navFloorSelect.value = floorId;
+      await navLoadFloor(floorId);
+    } finally {
+      navFloorBusy = false;
+    }
+  }
+
   // 폰이 말해서 정해진 경로를 화면에 그린다.
   //
   // 목적지 응답은 **물어본 폰에게만** 간다(되묻기 후보가 다른 연결로 새면 안 되므로).
@@ -1132,7 +1157,19 @@
     try {
       const res = await fetch('/map-db/current-route');
       const r = res.ok ? await res.json() : null;
-      if (!r) return;
+
+      // 경로가 없어졌다(취소·도착). 지워야 한다 — 안 지우면 끝난 경로가 계속
+      // 굵게 남아서, 다음에 볼 때 지금 안내 중인 것과 구분이 안 된다.
+      if (!r) {
+        // 그리던 게 있을 때만 상태 문구를 바꾼다. 서버를 갓 켰을 때도 여기로
+        // 오는데, 그때 이 문구로 덮으면 지도 로딩 메시지가 지워진다.
+        const had = nav.routeNodeIds.length || nav.destination;
+        nav.routeNodeIds = []; nav.routeBeacons = []; nav.destination = null;
+        navRouteChips.innerHTML = '';
+        navDraw();
+        if (had) navSetStatus('안내가 끝났습니다.');
+        return;
+      }
 
       // 다른 층 경로면 그 층으로 옮겨 그린다 — 폰이 있는 층과 화면이 다를 수 있다.
       if (r.floorId && r.floorId !== nav.floorId) {

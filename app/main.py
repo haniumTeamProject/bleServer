@@ -15,6 +15,7 @@ from app.mask.router import router as mask_router
 from app.nav.router import router as map_db_router
 from app.ws import llm_matcher
 from app.ws.handler import router as ws_router
+from app.ws.navigation_ws import router as nav_ws_router
 
 # 모델 import가 있어야 Base.metadata에 테이블이 등록됨 (각 router 모듈이 models를 import하므로 여기선 자동 포함)
 app = FastAPI(title="wayfinder-python")
@@ -51,4 +52,7 @@ app.include_router(landmark_router)
 # /map-db — 실측 도구(/monitor)의 지도가 DB 를 읽는 피드. 읽기 전용·인증 없음.
 # /map-static(파일)과 같은 자리에 둔다. 자세한 근거는 app/nav/router.py 문서 참고.
 app.include_router(map_db_router)
+# /ws/navigation — 사용자앱 전용. 연결마다 필터·추적기를 따로 둔다.
+# /ws 는 브로드캐스트라 성격이 반대라서 합치지 않는다(docs/사용자앱_API_명세.md).
+app.include_router(nav_ws_router)
 app.include_router(ws_router)  # /ws — 인증 없음, 기존 Java WebSocketConfig의 setAllowedOrigins("*")와 동일하게 오픈

@@ -1008,8 +1008,11 @@ def _process_message(raw: str, session: dict | None = None) -> tuple[str, list[d
             # **`_track` 안에 넣으면 안 된다.** `_track` 은 추적이 걸렸을 때만
             # 나오는데(비콘 2개 이상 필요), 경로가 생긴 것과 추적이 걸린 것은
             # 별개다. 비콘 하나로 시험하면 경로는 나오는데 화면에 안 뜬다.
-            if _current_route:
-                filtered["_routeSeq"] = _current_route["seq"]
+            #
+            # **경로가 없을 때도 번호를 보낸다.** 예전엔 `_current_route` 가 있을
+            # 때만 실었는데, 그러면 안내를 취소해도 모니터는 번호가 안 바뀐 줄 알고
+            # 지워진 경로를 계속 그린다.
+            filtered["_routeSeq"] = _route_seq
 
         return json.dumps(filtered, ensure_ascii=False), guides
     except Exception as e:
