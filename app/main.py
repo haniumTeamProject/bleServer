@@ -13,6 +13,7 @@ from app.floorplan.router import router as floorplan_router
 from app.landmark.router import router as landmark_router
 from app.mask.router import router as mask_router
 from app.nav.router import router as map_db_router
+from app.pathnode.router import router as path_node_router
 from app.ws import llm_matcher
 from app.ws.handler import router as ws_router
 from app.ws.navigation_ws import router as nav_ws_router
@@ -49,6 +50,7 @@ app.include_router(floorplan_router)
 app.include_router(mask_router)
 app.include_router(beacon_router)
 app.include_router(landmark_router)
+app.include_router(path_node_router)
 # /map-db — 실측 도구(/monitor)의 지도가 DB 를 읽는 피드. 읽기 전용·인증 없음.
 # /map-static(파일)과 같은 자리에 둔다. 자세한 근거는 app/nav/router.py 문서 참고.
 app.include_router(map_db_router)

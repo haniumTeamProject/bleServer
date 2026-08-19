@@ -67,6 +67,7 @@ from app.nav.map_source import (
     Node,
 )
 from app.nav.path_nodes import EntrancePoint, generate_path_nodes
+from app.pathnode.models import FloorPathNodes
 
 # 관리자웹이 쓰는 설계도 좌표 기준 폭. WEB-FE/src/lib/constants.ts 의 MAP_DESIGN_W.
 # 여기서 바꾸면 프론트와 갈라지므로 같이 고쳐야 한다.
@@ -171,7 +172,16 @@ class DbMapSource:
 
         결과 노드는 **900 좌표로 되돌려** 내보낸다. 비콘·랜드마크가 900 기준이라
         같은 좌표계여야 "이 비콘에서 가장 가까운 노드"를 찾을 수 있다.
+
+        관리자웹에서 경로노드를 저장해둔 층이면(PathNodePage.tsx의 "저장"), 아래
+        자동계산을 건너뛰고 그 값을 그대로 쓴다 — 관리자가 점을 옮기거나 잘못된
+        건너기를 지운 결과가 실제 안내에도 반영되게 하려면 이렇게 해야 한다.
+        아직 아무도 저장한 적 없는 층만(신규 층 등) 아래 자동계산으로 폴백한다.
         """
+        saved = self.db.get(FloorPathNodes, floor_id)
+        if saved and saved.nodes:
+            return self._graph_from_saved(saved)
+
         mask, mw, mh, mask_key = self._mask_bits(floor_id)
         f = self.db.get(Floor, floor_id)
         scale = float(f.scale_m_per_px) if f and f.scale_m_per_px else None
@@ -222,6 +232,45 @@ class DbMapSource:
         graph = Graph(nodes=nodes, edges=edges)
         _GRAPH_CACHE[floor_id] = (key, graph)
         return graph
+
+    def _graph_from_saved(self, saved: FloorPathNodes) -> Graph:
+        """관리자웹이 저장한 경로노드 그래프를 그대로 안내에 쓴다(자동계산 생략).
+
+        좌표는 저장 당시의 마스크 픽셀 기준(saved.mask_w/mask_h)이라, graph()의
+        자동계산 경로와 같은 방식으로 900(DESIGN_W) 좌표로 환산해 내보낸다.
+        거리(m)도 같은 방식으로 마스크 픽셀 거리 × scale_m_per_px 로 계산한다 —
+        scale_m_per_px 는 마스크 픽셀 기준이라(모듈 docstring 참고) 중간 환산 없이
+        바로 곱하면 된다.
+
+        directed는 항상 False로 만든다. find_node_path()의 주석대로 건너기도
+        이제 양방향으로 다루기 때문이다(관리자웹 pathfind.ts·자동계산 경로 모두
+        동일) — 저장된 JSON에 옛 directed:true 값이 남아있어도 여기서는 안 쓴다.
+        """
+        f = self.db.get(Floor, saved.floor_id)
+        scale = float(f.scale_m_per_px) if f and f.scale_m_per_px else None
+        if scale is None:
+            raise MapDataError(
+                "축척이 없어 경로 그래프를 만들 수 없습니다.\n"
+                "관리자웹의 지도 검수 화면에서 축척을 먼저 정해주세요."
+            )
+
+        mask_w = saved.mask_w or DESIGN_W
+        to_design = DESIGN_W / mask_w
+
+        nodes = [
+            Node(id=n["id"], x=n["x"] * to_design, y=n["y"] * to_design,
+                 type=n["type"], concave=bool(n.get("concave")), name=None)
+            for n in saved.nodes
+        ]
+        by_raw = {n["id"]: n for n in saved.nodes}
+        edges = []
+        for e in saved.edges or []:
+            a, b = by_raw.get(e["a"]), by_raw.get(e["b"])
+            if a is None or b is None:
+                continue
+            dist_m = math.hypot(a["x"] - b["x"], a["y"] - b["y"]) * scale
+            edges.append(Edge(a=e["a"], b=e["b"], dist_m=dist_m, type=e["type"], directed=False))
+        return Graph(nodes=nodes, edges=edges)
 
     def meters_per_px(self, floor_id: str) -> float:
         """설계도(900) 좌표 1px 이 몇 m 인가.
