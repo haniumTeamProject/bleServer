@@ -79,6 +79,21 @@ DESIGN_W = 900
 CROSSING_MAX_M = 12.0        # 이보다 넓으면 건너기를 만들지 않는다
 CROSS_PENALTY_M = 5.0        # 이만큼 이상 절약될 때만 건넌다
 
+# 경로 선에서 이 거리 안에 있는 비콘만 경로에 세운다.
+#
+# 3.0m 이었는데 **경로에서 벗어난 비콘까지 딸려 들어왔다.** 복도를 지나갈 뿐인데
+# 옆방 앞 비콘이 경로에 끼면, 사용자는 그 비콘을 제대로 못 잡거나 엉뚱한 지점에서
+# 안내를 받는다.
+#
+# 실측 4층 B1 → 407 로 재보면(반경만 바꿔가며):
+#
+#     3.0m   9칸   B1 B31 B4 B18 B8 B19 B20 B21 B22
+#     2.0m   7칸   B1 B31 B18 B19 B20 B21 B22       ← 경로 밖 B4·B8 빠짐
+#     1.5m   5칸   B1 B31 B20 B21 B22               ← B18·B19 까지 잃어 구간이 벌어짐
+#
+# 더 줄이면 경로 위 비콘까지 빠져서 안내 간격이 벌어진다. 2.0m 가 그 경계다.
+BEACON_MATCH_RADIUS_M = 3.0
+
 # 마스크를 푼 결과를 들고 있는다. {floor_id: (해시, 비트, 폭, 높이)}
 # 마스크 내용이 키라서, 관리자가 고치면 자동으로 다시 만든다.
 _MASK_CACHE: dict[str, tuple[str, bytes, int, int]] = {}
@@ -288,7 +303,7 @@ class DbMapSource:
         return CROSS_PENALTY_M
 
     def beacon_match_radius_m(self, floor_id: str) -> float:
-        return 3.0
+        return BEACON_MATCH_RADIUS_M
 
     # -- 마스크 ------------------------------------------------------------
     def _mask_bits(self, floor_id: str):

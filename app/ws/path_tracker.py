@@ -34,6 +34,15 @@ import time
 
 TREND_WINDOW = 4
 HISTORY_MAX = 40
+
+# 전진/후퇴로 확정하기 전에 조건이 몇 번 연속 성립해야 하는가.
+#
+# **시간이 아니라 횟수다.** evaluate() 는 비콘 패킷이 올 때마다 불리는데 실측에서
+# 초당 32~118회였다. 즉 "2회 연속"이 17~62ms 라 같은 잡음 봉우리 안이고,
+# 시간 필터 역할은 못 한다(그건 추세 창 2초와 confirm 대기 500ms 가 한다).
+#
+# 예전에는 모듈 상수라 소스를 고치고 서버를 재시작해야만 바뀌었다. 실측 중에
+# 만질 수 없는 유일한 값이어서 인스턴스 속성으로 뺐다.
 FORWARD_STREAK = 2
 BACK_STREAK = 3
 
@@ -181,6 +190,8 @@ class PathTracker:
         self.back_streak = 0
         self.threshold = DEFAULT_THRESHOLD
         self.min_next = DEFAULT_MIN_NEXT
+        self.forward_streak_need = FORWARD_STREAK
+        self.back_streak_need = BACK_STREAK
         self.min_gap = DEFAULT_MIN_GAP
         self.gap_window_ms = DEFAULT_GAP_WINDOW_MS
         self.min_hold_ms = DEFAULT_MIN_HOLD_MS
@@ -204,6 +215,8 @@ class PathTracker:
 
         # 마지막 판정 근거 — /monitor가 표시용으로만 쓴다 (판정은 여기서만 한다)
         self.last_trends: dict = {}
+        # 판정에 실제로 쓴 값들 — 왜 안 넘어갔는지 밖에서 보려고 둔다
+        self.last_numbers: dict = {}
         self.last_verdict = "대기 중"
         self.last_verdict_kind = ""
 
@@ -225,6 +238,8 @@ class PathTracker:
         confirm_delay_ms=None,
         confirm_gap=None,
         confirm_trend=None,
+        forward_streak_need=None,
+        back_streak_need=None,
     ) -> dict:
         self.path = [p for p in path if p]
         self.history.clear()
@@ -255,6 +270,10 @@ class PathTracker:
             self.confirm_gap = float(confirm_gap)
         if confirm_trend is not None:
             self.confirm_trend = float(confirm_trend)
+        if forward_streak_need is not None:
+            self.forward_streak_need = max(1, int(forward_streak_need))
+        if back_streak_need is not None:
+            self.back_streak_need = max(1, int(back_streak_need))
         self.armed_dir = None
         self.armed_at = None
         self.armed_index = None
@@ -609,6 +628,42 @@ class PathTracker:
             and trend_next > self.threshold and trend_cur < -self.threshold
         ) if self.require_trend else True
 
+        # ── 어느 조건에서 막혔는지 남긴다 ──────────────────────────
+        #
+        # 전진 조건이 넷이라(추세·최소세기·값존재·신호차) 안 넘어갈 때 무엇 때문인지
+        # 밖에서 알 수가 없었다. 그래프에서는 분명히 교차했는데 안내가 안 나가는
+        # 상황을 눈으로만 보고 원인을 좁히려니 추측이 될 수밖에 없다.
+        # 그래서 판정에 쓴 값과 실패한 조건 이름을 그대로 들고 있는다.
+        gap_next = (next_mean - cur_mean) if (next_mean is not None and cur_mean is not None) else None
+        gap_ok_fwd = (
+            (next_latest > cur_latest) if self.min_gap <= 0
+            else (gap_next is not None and gap_next >= self.min_gap)
+        ) if (next_latest is not None and cur_latest is not None) else False
+
+        blockers: list[str] = []
+        if next_key is None:
+            blockers.append("다음칸없음")
+        if not trend_ok_fwd:
+            blockers.append("추세")
+        if next_latest is None:
+            blockers.append("다음값없음")
+        elif next_latest <= self.min_next:
+            blockers.append("다음약함")
+        if cur_latest is None:
+            blockers.append("현재값없음")
+        if not gap_ok_fwd:
+            blockers.append("신호차")
+
+        self.last_numbers = {
+            "prev": prev_key, "cur": cur_key, "next": next_key,
+            "tPrev": trend_prev, "tCur": trend_cur, "tNext": trend_next,
+            "vPrev": prev_latest, "vCur": cur_latest, "vNext": next_latest,
+            "gapNext": gap_next,
+            "threshold": self.threshold, "minNext": self.min_next, "minGap": self.min_gap,
+            "mode": self.mode, "requireTrend": self.require_trend,
+            "blockers": blockers,
+        }
+
         if (
             trend_ok_fwd
             and next_latest is not None
@@ -616,9 +671,7 @@ class PathTracker:
             and cur_latest is not None
             # min_gap 이 0이면 원래대로 "다음이 더 세다"만 본다.
             # 0보다 크면 "이만큼 더 세다"를 요구하는 선택적 조건이 된다.
-            and (next_latest > cur_latest if self.min_gap <= 0 else
-                 (cur_mean is not None and next_mean is not None
-                  and next_mean - cur_mean >= self.min_gap))
+            and gap_ok_fwd
         ):
             self.forward_streak += 1
             self.back_streak = 0
@@ -627,7 +680,7 @@ class PathTracker:
             if self.forward_since is None:
                 self.forward_since = now
             held = now - self.forward_since
-            if self.forward_streak >= FORWARD_STREAK and held >= self.min_hold_ms:
+            if self.forward_streak >= self.forward_streak_need and held >= self.min_hold_ms:
                 self.forward_streak = 0
                 self.forward_since = None
                 if self.mode == MODE_CONFIRM:
@@ -641,7 +694,7 @@ class PathTracker:
                 self.last_verdict = "전진 → 다음 노드로 이동"
                 self.last_verdict_kind = "advance"
                 return self._transition("forward")
-            self.last_verdict = f"전진 감지 ({self.forward_streak}/{FORWARD_STREAK}, 연속되면 이동)"
+            self.last_verdict = f"전진 감지 ({self.forward_streak}/{self.forward_streak_need}, 연속되면 이동)"
             self.last_verdict_kind = "warn"
             return None
 
@@ -665,7 +718,7 @@ class PathTracker:
             now = self._now_data_ms()
             if self.back_since is None:
                 self.back_since = now
-            if self.back_streak >= BACK_STREAK and now - self.back_since >= self.min_hold_ms:
+            if self.back_streak >= self.back_streak_need and now - self.back_since >= self.min_hold_ms:
                 self.back_streak = 0
                 self.back_since = None
                 if self.mode == MODE_CONFIRM:
@@ -678,7 +731,7 @@ class PathTracker:
                 self.last_verdict = "후퇴 → 이전 노드로 되돌림"
                 self.last_verdict_kind = "back"
                 return self._transition("backward")
-            self.last_verdict = f"이탈 의심 ({self.back_streak}/{BACK_STREAK}, 연속되면 되돌림)"
+            self.last_verdict = f"이탈 의심 ({self.back_streak}/{self.back_streak_need}, 연속되면 되돌림)"
             self.last_verdict_kind = "warn"
             return None
 

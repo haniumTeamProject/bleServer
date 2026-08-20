@@ -184,6 +184,9 @@
       <!-- id는 segWindowInput. 위쪽 실시간 차트의 "X축 표시 폭"이 이미 windowInput을 쓰고 있어 겹치면 안 됨 -->
       <label id="segWinLabel">창 길이(초) <input id="segWindowInput" type="number" value="2.0" step="0.5" min="0.5"></label>
       <label id="segCntLabel">구간 수 <input id="segmentsInput" type="number" value="5" min="2" max="20"></label>
+      <!-- 조건이 몇 번 연속 성립해야 넘어가는지. 시간이 아니라 패킷 횟수다 -->
+      <label id="fwdStreakLabel">전진 연속 <input id="fwdStreakInput" type="number" value="2" min="1" max="10"></label>
+      <label id="backStreakLabel">후퇴 연속 <input id="backStreakInput" type="number" value="3" min="1" max="10"></label>
     </div>
     <div class="hint" style="margin-top:-8px;">
       구간 분할: 창 안의 샘플을 구간별로 평균낸 뒤 그 평균들의 기울기를 추세로 씁니다.
@@ -1229,6 +1232,8 @@
       // 화면에서는 초 단위로 입력받고 서버에는 ms로 보낸다
       windowMs: Math.round((parseFloat(document.getElementById('segWindowInput').value) || 2.0) * 1000),
       segments: parseInt(document.getElementById('segmentsInput').value, 10) || 5,
+      forwardStreakNeed: parseInt(document.getElementById('fwdStreakInput').value, 10) || 2,
+      backStreakNeed: parseInt(document.getElementById('backStreakInput').value, 10) || 3,
     }));
   };
 
@@ -1246,10 +1251,13 @@
       mode: document.getElementById('modeInput').value,
       windowMs: Math.round((parseFloat(document.getElementById('segWindowInput').value) || 2.0) * 1000),
       segments: parseInt(document.getElementById('segmentsInput').value, 10) || 5,
+      forwardStreakNeed: parseInt(document.getElementById('fwdStreakInput').value, 10) || 2,
+      backStreakNeed: parseInt(document.getElementById('backStreakInput').value, 10) || 3,
     }));
   }
 
-  ['modeInput', 'threshInput', 'minNextInput', 'segWindowInput', 'segmentsInput']
+  ['modeInput', 'threshInput', 'minNextInput', 'segWindowInput', 'segmentsInput',
+   'fwdStreakInput', 'backStreakInput']
     .forEach(id => document.getElementById(id)?.addEventListener('change', pushTuning));
   ws.addEventListener('open', () => setTimeout(pushTuning, 120));
 

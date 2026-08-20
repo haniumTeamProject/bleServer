@@ -82,6 +82,7 @@ class NavSession:
         # 로그 조절용 — 비콘은 초당 열 번씩 오므로 요약만 남긴다
         self.beacon_count = 0
         self.beacon_logged_at = 0.0
+        self.track_logged_at = 0.0
 
         # 사용자가 말한 문장. `/monitor` 가 "폰이 말함: ..." 으로 보여준다.
         self.heard = ""
@@ -123,7 +124,19 @@ def _now_ms() -> int:
 # 비콘은 초당 열 번씩 들어와서 그대로 찍으면 로그가 그것만으로 가득 찬다.
 # 대신 몇 초에 한 번 요약을 남겨서 "들어오고는 있다"는 것만 확인되게 한다.
 # ---------------------------------------------------------------------------
-BEACON_LOG_EVERY_S = 5.0
+import os
+
+# 비콘 RSSI 요약 로그. 0 이면 아예 안 찍는다.
+#
+#     LOG_BEACONS=0     끄기
+#     LOG_BEACONS=5     5초마다 요약 (기본)
+BEACON_LOG_EVERY_S = float(os.environ.get("LOG_BEACONS", "5"))
+
+# 판정 근거 로그. 그래프에서는 교차했는데 안내가 안 나갈 때 어느 조건이 막는지 본다.
+#
+#     LOG_TRACK=0       끄기
+#     LOG_TRACK=1       1초마다 (기본)
+TRACK_LOG_EVERY_S = float(os.environ.get("LOG_TRACK", "1"))
 
 
 def _log_in(session: "NavSession", data: dict) -> None:
@@ -133,8 +146,37 @@ def _log_in(session: "NavSession", data: dict) -> None:
     print(f"[nav {session.id}] ← {event}  {json.dumps(detail, ensure_ascii=False)}")
 
 
+def _log_track(session: "NavSession") -> None:
+    """판정이 왜 안 넘어가는지 숫자로 남긴다.
+
+    `/monitor` 그래프에서는 두 비콘이 분명히 교차하는데 안내가 안 나가는 일이 있다.
+    전진 조건이 넷이라(추세·최소세기·값존재·신호차) 화면만 봐서는 어느 것이 막는지
+    알 수 없어서, 판정에 쓴 값과 실패한 조건을 그대로 찍는다.
+    """
+    if TRACK_LOG_EVERY_S <= 0:
+        return
+    now = time.time()
+    if now - session.track_logged_at < TRACK_LOG_EVERY_S:
+        return
+    n = session.tracker.last_numbers
+    if not n:
+        return
+    session.track_logged_at = now
+
+    def v(x):
+        return "-" if x is None else f"{x:+.1f}"
+
+    print(f"[nav {session.id}] 판정 {n['cur']}→{n['next'] or '끝'} "
+          f"| 값 {v(n['vCur'])}→{v(n['vNext'])} 차 {v(n['gapNext'])}(요구 {n['minGap']:.1f}) "
+          f"| 추세 {v(n['tCur'])}/{v(n['tNext'])}(요구 ±{n['threshold']:.1f}) "
+          f"| {session.tracker.last_verdict}"
+          + (f" | 막힘: {','.join(n['blockers'])}" if n["blockers"] else ""))
+
+
 def _log_beacons(session: "NavSession", data: dict) -> None:
     """비콘은 요약만. **처리가 끝난 뒤에 부른다** — 필터가 채워져야 값이 나온다."""
+    if BEACON_LOG_EVERY_S <= 0:
+        return
     session.beacon_count += len(data.get("beacons") or [])
     now = time.time()
     if now - session.beacon_logged_at < BEACON_LOG_EVERY_S:
@@ -346,6 +388,7 @@ def on_beacons(session: NavSession, data: dict) -> list[dict]:
     transition = session.tracker.evaluate()
     if transition is not None:
         out_msgs.append(_transition_message(session, transition))
+    _log_track(session)
 
     session.mirror = monitor_mirror.beacon_payload(session, samples)
     return out_msgs
@@ -489,7 +532,18 @@ def _start_route(session: NavSession, lm: landmark_matcher.Landmark) -> list[dic
                     haptic="arrive", listen_after=True,
                     screen=screen_of(lm.name, None, 1, 1))]
 
-    session.tracker.set_path(plan.keys)
+    # `/monitor` 판정 설정 창에서 고른 값을 그대로 쓴다.
+    #
+    # 예전에는 인자 없이 불러서 **화면에서 임계값을 아무리 바꿔도 폰 안내는 기본값
+    # 그대로였다.** 판정기가 두 개(전역 `handler._tracker` / 연결별 이 tracker)인데
+    # 설정이 앞쪽에만 걸려서, 화면에 보이는 판정과 폰이 받는 안내가 다른 기준으로
+    # 돌고 있었다. bleapp 시절에는 둘이 같은 판정기라 드러나지 않던 문제다.
+    #
+    # 전역 하나라 폰이 여러 대면 다 같은 설정을 쓴다 — 실측 도구 수준의 한계이고,
+    # 오히려 실측 중에는 그게 편하다.
+    from app.ws.handler import _track_tuning
+
+    session.tracker.set_path(plan.keys, **_track_tuning)
     _seed_index(session, plan.keys)
     session.tracker.start_session()
     print(f"[nav] {session.id} {plan.from_beacon} → {lm.name} "

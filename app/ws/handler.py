@@ -38,7 +38,8 @@ _track_values: dict[str, float] = {}
 # 화면에서 고른 판정 설정. 목적지로 거는 경로에도 이걸 그대로 쓴다.
 _TUNING_FIELDS = ("threshold", "min_next", "mode", "window_ms", "segments",
                   "min_gap", "gap_window_ms", "min_hold_ms", "require_trend",
-                  "trigger_gap", "confirm_delay_ms", "confirm_gap", "confirm_trend")
+                  "trigger_gap", "confirm_delay_ms", "confirm_gap", "confirm_trend",
+                  "forward_streak_need", "back_streak_need")
 _track_tuning: dict = {}
 
 # 경로 진행 추적 — 비콘이 바뀌는 시점을 서버가 판단해서 폰에 음성 안내를 내려보내기 위한 것.
