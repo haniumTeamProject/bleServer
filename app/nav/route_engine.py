@@ -155,15 +155,15 @@ def find_node_path(graph: Graph, start_id: str, end_id: str,
         is_cross = 1 if e.type == "cross" else 0
         cost = e.dist_m + is_cross * cross_penalty_m
         adj[e.a].append((e.b, cost, e.dist_m, is_cross))
-        # **건너기도 양방향이다.**
+        # **건너기는 단방향이다.** a(입구/벽 끝) → b(맞은편) 으로만 건넌다.
         #
-        # 전에는 단방향이었다 — 건너기가 "입구 ↔ 맞은편"뿐이라 벽 끝에서 출발하는
-        # 것만 안전하다고 봤기 때문이다. 그런데 관리자웹이 **코너에서도 건너기를
-        # 만들게** 바뀌었고, 코너는 양쪽 다 벽에 붙어 있어 한쪽만 허용할 근거가
-        # 없어졌다. 관리자웹 쪽(pathfind.ts)도 양방향이다.
+        # 맞은편 지점은 벽에서 떨어진 허공이라 거기서 출발할 수가 없다. 벽을
+        # 만지며 걷는 사람에게 출발점은 반드시 벽에 붙어 있어야 한다.
         #
-        # `Edge.directed` 는 남겨둔다. 파일로 저장된 옛 그래프에 그 값이 들어 있고,
-        # 나중에 "여기는 한쪽으로만" 같은 예외가 필요해질 수 있다.
+        # 한때 양방향으로 열어뒀는데 **관리자웹과 다른 경로가 나왔다.**
+        # pathfind.ts 는 `if (!e.directed)` 일 때만 역방향을 열고, 관리자웹은
+        # cross 를 항상 directed 로 만든다(pathNodes.ts). 화면에 그려진 경로와
+        # 안내에 쓰는 경로가 갈라지면 검수 자체가 의미를 잃는다.
         if not e.directed:
             adj[e.b].append((e.a, cost, e.dist_m, is_cross))
 

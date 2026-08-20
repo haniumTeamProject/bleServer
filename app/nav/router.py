@@ -29,6 +29,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.nav import cues
 from app.nav.db_map_source import DbMapSource, floor_choices, map_project
 from app.nav.map_source import MapDataError
 from app.nav.route_engine import build_route, estimated_seconds
@@ -124,4 +125,56 @@ def get_route(floor_id: str, to: str, from_: str | None = Query(None, alias="fro
              "turn": s.turn, "isArrival": s.is_arrival}
             for s in route.steps
         ],
+    }
+
+
+@router.get("/floors/{floor_id}/cues")
+def get_route_cues(floor_id: str, to: str, from_: str | None = Query(None, alias="from"),
+                   db: Session = Depends(get_db)):
+    """어느 비콘에서 무슨 안내가 나가는지. **배정 방식 두 가지를 나란히 준다.**
+
+    안내 문구는 경로 노드가 정하고(코너·횡단·도착), 그것을 어느 비콘에서 말할지는
+    배정 규칙이 정한다. 규칙이 두 가지라 실제 배치에서 어느 쪽이 나은지 눈으로
+    비교해야 해서, 하나를 고르지 않고 둘 다 돌려준다.
+
+        거리   사건보다 여유(회전 2m·횡단 4m)만큼 앞선 마지막 비콘
+        소유   노드에서 가장 가까운 비콘의 한 칸 앞
+        절충   한 칸 앞을 쓰되 10m 를 넘으면 거리 방식으로
+
+    `orphan*` 은 그 방식으로 붙일 비콘을 못 찾은 사건이다. 비어 있어야 정상이고,
+    남아 있으면 그 안내가 실제로는 안 나간다는 뜻이다.
+    """
+    try:
+        source = DbMapSource(db)
+        beacons = source.beacons(floor_id)
+        if not beacons:
+            raise MapDataError("이 층에 등록된 비콘이 없습니다.")
+        start = from_ or beacons[0].id
+        route = build_route(source, floor_id, from_beacon_id=start, to_landmark_id=to)
+        graph = source.graph(floor_id)
+        result = cues.build(graph, route.node_ids, beacons,
+                            source.beacon_match_radius_m(floor_id),
+                            source.meters_per_px(floor_id),
+                            route.destination.name)
+    except MapDataError as e:
+        return JSONResponse({"error": str(e)}, status_code=404)
+
+    def cue_json(c):
+        return {"kind": c.kind, "nodeId": c.node_id, "distM": round(c.dist_m, 1),
+                "direction": c.direction, "template": c.template, "text": c.text}
+
+    return {
+        "from": start,
+        "destination": route.destination.name,
+        "steps": [
+            {"seq": s.seq, "beaconId": s.beacon_id, "distM": s.dist_m,
+             "byDistance": [cue_json(c) for c in s.cues_by_distance],
+             "byOwner": [cue_json(c) for c in s.cues_by_owner],
+             "byHybrid": [cue_json(c) for c in s.cues_by_hybrid]}
+            for s in result.steps
+        ],
+        "cues": [cue_json(c) for c in result.cues],
+        "orphanDistance": [cue_json(c) for c in result.orphan_distance],
+        "orphanOwner": [cue_json(c) for c in result.orphan_owner],
+        "orphanHybrid": [cue_json(c) for c in result.orphan_hybrid],
     }

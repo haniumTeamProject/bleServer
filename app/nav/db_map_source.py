@@ -243,7 +243,8 @@ class DbMapSource:
             # 마스크 픽셀 거리 × (m/마스크px) = 실거리. scale 이 마스크 픽셀 기준이라
             # 중간 환산 없이 바로 곱하면 된다 (PathNodePage.tsx 주석과 같은 이야기).
             dist_m = math.hypot(a.x - b.x, a.y - b.y) * scale
-            edges.append(Edge(a=e.a, b=e.b, dist_m=dist_m, type=e.type, directed=False))
+            edges.append(Edge(a=e.a, b=e.b, dist_m=dist_m, type=e.type,
+                              directed=e.directed))
         graph = Graph(nodes=nodes, edges=edges)
         _GRAPH_CACHE[floor_id] = (key, graph)
         return graph
@@ -257,9 +258,9 @@ class DbMapSource:
         scale_m_per_px 는 마스크 픽셀 기준이라(모듈 docstring 참고) 중간 환산 없이
         바로 곱하면 된다.
 
-        directed는 항상 False로 만든다. find_node_path()의 주석대로 건너기도
-        이제 양방향으로 다루기 때문이다(관리자웹 pathfind.ts·자동계산 경로 모두
-        동일) — 저장된 JSON에 옛 directed:true 값이 남아있어도 여기서는 안 쓴다.
+        **건너기는 단방향이다.** a(입구/벽 끝) → b(맞은편) 으로만 갈 수 있다.
+        맞은편 지점은 벽에서 떨어진 허공이라 거기서 출발할 수가 없기 때문이다.
+        관리자웹 pathfind.ts 도 같다(`if (!e.directed)` 일 때만 역방향을 연다).
         """
         f = self.db.get(Floor, saved.floor_id)
         scale = float(f.scale_m_per_px) if f and f.scale_m_per_px else None
@@ -284,7 +285,10 @@ class DbMapSource:
             if a is None or b is None:
                 continue
             dist_m = math.hypot(a["x"] - b["x"], a["y"] - b["y"]) * scale
-            edges.append(Edge(a=e["a"], b=e["b"], dist_m=dist_m, type=e["type"], directed=False))
+            # 저장된 값을 그대로 쓴다. 옛 JSON 에 없으면 건너기 여부로 정한다 —
+            # 관리자웹이 cross 를 항상 directed 로 만들기 때문이다.
+            edges.append(Edge(a=e["a"], b=e["b"], dist_m=dist_m, type=e["type"],
+                              directed=bool(e.get("directed", e["type"] == "cross"))))
         return Graph(nodes=nodes, edges=edges)
 
     def meters_per_px(self, floor_id: str) -> float:

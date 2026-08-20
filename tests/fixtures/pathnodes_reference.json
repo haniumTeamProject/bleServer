@@ -55,7 +55,7 @@
      "id": "N04",
      "x": 200,
      "y": 20,
-     "type": "facing",
+     "type": "corner",
      "concave": false,
      "pairKind": null
     },
@@ -77,17 +77,17 @@
     },
     {
      "id": "N07",
-     "x": 82,
+     "x": 80,
      "y": 40,
      "type": "facing",
      "concave": false,
-     "pairKind": "landmark"
+     "pairKind": null
     },
     {
      "id": "N08",
      "x": 0,
      "y": 40,
-     "type": "facing",
+     "type": "corner",
      "concave": false,
      "pairKind": null
     },
@@ -165,23 +165,13 @@
      "type": "cross"
     },
     {
-     "a": "N02",
-     "b": "N01",
-     "type": "cross"
-    },
-    {
      "a": "N03",
      "b": "N06",
      "type": "cross"
     },
     {
-     "a": "N09",
-     "b": "N08",
-     "type": "cross"
-    },
-    {
      "a": "N10",
-     "b": "N04",
+     "b": "N07",
      "type": "cross"
     }
    ]
@@ -223,7 +213,7 @@
      "id": "N01",
      "x": 10,
      "y": 0,
-     "type": "facing",
+     "type": "corner",
      "concave": false,
      "pairKind": null
     },
@@ -237,6 +227,14 @@
     },
     {
      "id": "N03",
+     "x": 80,
+     "y": 0,
+     "type": "facing",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N04",
      "x": 150,
      "y": 0,
      "type": "corner",
@@ -244,31 +242,31 @@
      "pairKind": null
     },
     {
-     "id": "N04",
+     "id": "N05",
      "x": 150,
      "y": 30,
-     "type": "facing",
-     "concave": false,
-     "pairKind": "landmark"
-    },
-    {
-     "id": "N05",
-     "x": 80,
-     "y": 30,
      "type": "corner",
-     "concave": true,
+     "concave": false,
      "pairKind": null
     },
     {
      "id": "N06",
      "x": 80,
-     "y": 35,
+     "y": 30,
      "type": "corner",
      "concave": true,
      "pairKind": null
     },
     {
      "id": "N07",
+     "x": 80,
+     "y": 35,
+     "type": "corner",
+     "concave": true,
+     "pairKind": null
+    },
+    {
+     "id": "N08",
      "x": 200,
      "y": 35,
      "type": "corner",
@@ -276,7 +274,7 @@
      "pairKind": null
     },
     {
-     "id": "N08",
+     "id": "N09",
      "x": 200,
      "y": 55,
      "type": "corner",
@@ -284,16 +282,8 @@
      "pairKind": null
     },
     {
-     "id": "N09",
-     "x": 80,
-     "y": 55,
-     "type": "facing",
-     "concave": false,
-     "pairKind": null
-    },
-    {
      "id": "N10",
-     "x": 0,
+     "x": 80,
      "y": 55,
      "type": "facing",
      "concave": false,
@@ -301,6 +291,22 @@
     },
     {
      "id": "N11",
+     "x": 20,
+     "y": 55,
+     "type": "facing",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N12",
+     "x": 0,
+     "y": 55,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N13",
      "x": 0,
      "y": 35,
      "type": "corner",
@@ -308,7 +314,7 @@
      "pairKind": null
     },
     {
-     "id": "N12",
+     "id": "N14",
      "x": 20,
      "y": 35,
      "type": "landmark",
@@ -316,7 +322,7 @@
      "pairKind": null
     },
     {
-     "id": "N13",
+     "id": "N15",
      "x": 20,
      "y": 30,
      "type": "corner",
@@ -324,10 +330,10 @@
      "pairKind": null
     },
     {
-     "id": "N14",
+     "id": "N16",
      "x": 10,
      "y": 30,
-     "type": "facing",
+     "type": "corner",
      "concave": false,
      "pairKind": null
     }
@@ -400,41 +406,46 @@
     },
     {
      "a": "N14",
+     "b": "N15",
+     "type": "wall"
+    },
+    {
+     "a": "N15",
+     "b": "N16",
+     "type": "wall"
+    },
+    {
+     "a": "N16",
      "b": "N01",
      "type": "wall"
     },
     {
-     "a": "N12",
-     "b": "N04",
+     "a": "N14",
+     "b": "N11",
      "type": "cross"
     },
     {
-     "a": "N01",
-     "b": "N14",
-     "type": "cross"
-    },
-    {
-     "a": "N03",
-     "b": "N01",
-     "type": "cross"
-    },
-    {
-     "a": "N05",
-     "b": "N12",
+     "a": "N14",
+     "b": "N02",
      "type": "cross"
     },
     {
      "a": "N06",
-     "b": "N09",
+     "b": "N03",
      "type": "cross"
     },
     {
-     "a": "N11",
+     "a": "N07",
      "b": "N10",
      "type": "cross"
     },
     {
-     "a": "N13",
+     "a": "N15",
+     "b": "N11",
+     "type": "cross"
+    },
+    {
+     "a": "N15",
      "b": "N02",
      "type": "cross"
     }
@@ -465,7 +476,7 @@
      "id": "N01",
      "x": 0,
      "y": 0,
-     "type": "facing",
+     "type": "corner",
      "concave": false,
      "pairKind": null
     },
@@ -513,7 +524,7 @@
      "id": "N07",
      "x": 0,
      "y": 60,
-     "type": "facing",
+     "type": "corner",
      "concave": false,
      "pairKind": null
     },
@@ -568,23 +579,13 @@
      "type": "wall"
     },
     {
-     "a": "N01",
-     "b": "N07",
-     "type": "cross"
-    },
-    {
-     "a": "N02",
-     "b": "N01",
+     "a": "N03",
+     "b": "N08",
      "type": "cross"
     },
     {
      "a": "N03",
      "b": "N06",
-     "type": "cross"
-    },
-    {
-     "a": "N04",
-     "b": "N08",
      "type": "cross"
     }
    ]
@@ -608,7 +609,7 @@
      "id": "N01",
      "x": 5,
      "y": 5,
-     "type": "facing",
+     "type": "corner",
      "concave": false,
      "pairKind": null
     },
@@ -632,7 +633,7 @@
      "id": "N04",
      "x": 5,
      "y": 295,
-     "type": "facing",
+     "type": "corner",
      "concave": false,
      "pairKind": null
     }
@@ -685,7 +686,7 @@
      "id": "N01",
      "x": 0,
      "y": 10,
-     "type": "facing",
+     "type": "corner",
      "concave": false,
      "pairKind": null
     },
@@ -709,7 +710,7 @@
      "id": "N04",
      "x": 0,
      "y": 30,
-     "type": "facing",
+     "type": "corner",
      "concave": false,
      "pairKind": null
     },
@@ -717,7 +718,7 @@
      "id": "N05",
      "x": 70,
      "y": 10,
-     "type": "facing",
+     "type": "corner",
      "concave": false,
      "pairKind": null
     },
@@ -741,7 +742,7 @@
      "id": "N08",
      "x": 70,
      "y": 30,
-     "type": "facing",
+     "type": "corner",
      "concave": false,
      "pairKind": null
     }
@@ -768,16 +769,6 @@
      "type": "wall"
     },
     {
-     "a": "N01",
-     "b": "N04",
-     "type": "cross"
-    },
-    {
-     "a": "N02",
-     "b": "N01",
-     "type": "cross"
-    },
-    {
      "a": "N05",
      "b": "N06",
      "type": "wall"
@@ -796,16 +787,6 @@
      "a": "N08",
      "b": "N05",
      "type": "wall"
-    },
-    {
-     "a": "N05",
-     "b": "N08",
-     "type": "cross"
-    },
-    {
-     "a": "N06",
-     "b": "N05",
-     "type": "cross"
     }
    ]
   },
@@ -858,7 +839,7 @@
      "id": "N04",
      "x": 0,
      "y": 40,
-     "type": "facing",
+     "type": "corner",
      "concave": false,
      "pairKind": null
     }
@@ -883,11 +864,6 @@
      "a": "N04",
      "b": "N01",
      "type": "wall"
-    },
-    {
-     "a": "N01",
-     "b": "N04",
-     "type": "cross"
     }
    ]
   },
@@ -963,7 +939,7 @@
     },
     {
      "id": "N05",
-     "x": 200,
+     "x": 160,
      "y": 30,
      "type": "facing",
      "concave": false,
@@ -972,13 +948,21 @@
     {
      "id": "N06",
      "x": 200,
-     "y": 50,
+     "y": 30,
      "type": "corner",
      "concave": false,
      "pairKind": null
     },
     {
      "id": "N07",
+     "x": 200,
+     "y": 50,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N08",
      "x": 160,
      "y": 50,
      "type": "corner",
@@ -986,7 +970,7 @@
      "pairKind": null
     },
     {
-     "id": "N08",
+     "id": "N09",
      "x": 160,
      "y": 80,
      "type": "connector",
@@ -994,23 +978,23 @@
      "pairKind": null
     },
     {
-     "id": "N09",
-     "x": 120,
-     "y": 80,
-     "type": "facing",
-     "concave": false,
-     "pairKind": "connector"
-    },
-    {
      "id": "N10",
      "x": 120,
-     "y": 50,
-     "type": "facing",
+     "y": 80,
+     "type": "corner",
      "concave": false,
      "pairKind": null
     },
     {
      "id": "N11",
+     "x": 120,
+     "y": 50,
+     "type": "corner",
+     "concave": true,
+     "pairKind": null
+    },
+    {
+     "id": "N12",
      "x": 80,
      "y": 50,
      "type": "facing",
@@ -1018,16 +1002,8 @@
      "pairKind": null
     },
     {
-     "id": "N12",
-     "x": 45,
-     "y": 50,
-     "type": "facing",
-     "concave": false,
-     "pairKind": "landmark"
-    },
-    {
      "id": "N13",
-     "x": 0,
+     "x": 40,
      "y": 50,
      "type": "facing",
      "concave": false,
@@ -1036,13 +1012,21 @@
     {
      "id": "N14",
      "x": 0,
-     "y": 30,
+     "y": 50,
      "type": "corner",
      "concave": false,
      "pairKind": null
     },
     {
      "id": "N15",
+     "x": 0,
+     "y": 30,
+     "type": "corner",
+     "concave": false,
+     "pairKind": null
+    },
+    {
+     "id": "N16",
      "x": 40,
      "y": 30,
      "type": "corner",
@@ -1123,47 +1107,37 @@
     },
     {
      "a": "N15",
+     "b": "N16",
+     "type": "wall"
+    },
+    {
+     "a": "N16",
      "b": "N01",
      "type": "wall"
     },
     {
      "a": "N01",
+     "b": "N13",
+     "type": "cross"
+    },
+    {
+     "a": "N03",
      "b": "N12",
      "type": "cross"
     },
     {
      "a": "N08",
-     "b": "N09",
+     "b": "N05",
      "type": "cross"
     },
     {
-     "a": "N02",
-     "b": "N01",
-     "type": "cross"
-    },
-    {
-     "a": "N03",
-     "b": "N11",
-     "type": "cross"
-    },
-    {
-     "a": "N07",
-     "b": "N10",
-     "type": "cross"
-    },
-    {
-     "a": "N10",
+     "a": "N11",
      "b": "N04",
      "type": "cross"
     },
     {
-     "a": "N14",
+     "a": "N16",
      "b": "N13",
-     "type": "cross"
-    },
-    {
-     "a": "N15",
-     "b": "N05",
      "type": "cross"
     }
    ]
@@ -1193,7 +1167,7 @@
      "id": "N01",
      "x": 0,
      "y": 0,
-     "type": "facing",
+     "type": "corner",
      "concave": false,
      "pairKind": null
     },
@@ -1217,7 +1191,7 @@
      "id": "N04",
      "x": 0,
      "y": 20,
-     "type": "facing",
+     "type": "corner",
      "concave": false,
      "pairKind": null
     }
@@ -1242,16 +1216,6 @@
      "a": "N04",
      "b": "N01",
      "type": "wall"
-    },
-    {
-     "a": "N01",
-     "b": "N04",
-     "type": "cross"
-    },
-    {
-     "a": "N02",
-     "b": "N01",
-     "type": "cross"
     }
    ]
   },
@@ -1298,7 +1262,7 @@
      "id": "N04",
      "x": 0,
      "y": 120,
-     "type": "facing",
+     "type": "corner",
      "concave": false,
      "pairKind": null
     }
@@ -1724,8 +1688,8 @@
    },
    {
     "id": "N02",
-    "x": 369.63551093492447,
-    "y": 1006,
+    "x": 369,
+    "y": 1006.9357798165138,
     "type": "facing",
     "concave": false,
     "pairKind": null
@@ -1734,7 +1698,7 @@
     "id": "N03",
     "x": 575,
     "y": 1023,
-    "type": "facing",
+    "type": "corner",
     "concave": false,
     "pairKind": null
    },
@@ -1749,7 +1713,7 @@
    {
     "id": "N05",
     "x": 575,
-    "y": 1073.0623660990113,
+    "y": 1210,
     "type": "facing",
     "concave": false,
     "pairKind": null
@@ -1757,29 +1721,13 @@
    {
     "id": "N06",
     "x": 575,
-    "y": 1120.0117729471208,
-    "type": "facing",
-    "concave": false,
-    "pairKind": null
-   },
-   {
-    "id": "N07",
-    "x": 575,
-    "y": 1150,
-    "type": "facing",
-    "concave": false,
-    "pairKind": null
-   },
-   {
-    "id": "N08",
-    "x": 575,
     "y": 1250,
     "type": "corner",
     "concave": false,
     "pairKind": null
    },
    {
-    "id": "N09",
+    "id": "N07",
     "x": 444,
     "y": 1251,
     "type": "corner",
@@ -1787,7 +1735,7 @@
     "pairKind": null
    },
    {
-    "id": "N10",
+    "id": "N08",
     "x": 444,
     "y": 1361,
     "type": "corner",
@@ -1795,7 +1743,7 @@
     "pairKind": null
    },
    {
-    "id": "N11",
+    "id": "N09",
     "x": 546,
     "y": 1361,
     "type": "facing",
@@ -1803,7 +1751,7 @@
     "pairKind": "landmark"
    },
    {
-    "id": "N12",
+    "id": "N10",
     "x": 574,
     "y": 1361,
     "type": "corner",
@@ -1811,7 +1759,7 @@
     "pairKind": null
    },
    {
-    "id": "N13",
+    "id": "N11",
     "x": 575,
     "y": 1372,
     "type": "corner",
@@ -1819,47 +1767,47 @@
     "pairKind": null
    },
    {
+    "id": "N12",
+    "x": 673,
+    "y": 1372.3116057233703,
+    "type": "facing",
+    "concave": false,
+    "pairKind": "landmark"
+   },
+   {
+    "id": "N13",
+    "x": 680.0052976784743,
+    "y": 1372.3338801198045,
+    "type": "landmark",
+    "concave": false,
+    "pairKind": null
+   },
+   {
     "id": "N14",
-    "x": 581,
-    "y": 1374,
-    "type": "corner",
-    "concave": true,
+    "x": 886.0032150033489,
+    "y": 1372.9888814467515,
+    "type": "landmark",
+    "concave": false,
     "pairKind": null
    },
    {
     "id": "N15",
-    "x": 673,
-    "y": 1374,
+    "x": 888,
+    "y": 1372.9952305246422,
     "type": "facing",
     "concave": false,
     "pairKind": "landmark"
    },
    {
     "id": "N16",
-    "x": 680,
-    "y": 1374,
-    "type": "landmark",
-    "concave": false,
-    "pairKind": null
-   },
-   {
-    "id": "N17",
-    "x": 886,
-    "y": 1374,
-    "type": "landmark",
-    "concave": false,
-    "pairKind": null
-   },
-   {
-    "id": "N18",
     "x": 1100,
-    "y": 1374,
+    "y": 1373.6693163751988,
     "type": "facing",
     "concave": false,
     "pairKind": "landmark"
    },
    {
-    "id": "N19",
+    "id": "N17",
     "x": 1204,
     "y": 1374,
     "type": "corner",
@@ -1867,39 +1815,39 @@
     "pairKind": null
    },
    {
-    "id": "N20",
-    "x": 1206,
-    "y": 1327.475329832489,
+    "id": "N18",
+    "x": 1205.3427113754271,
+    "y": 1327.0051018600532,
     "type": "facing",
     "concave": false,
     "pairKind": "landmark"
    },
    {
-    "id": "N21",
-    "x": 1206,
-    "y": 1321,
+    "id": "N19",
+    "x": 1205.5146818923329,
+    "y": 1320.9861337683524,
     "type": "landmark",
     "concave": false,
     "pairKind": null
    },
    {
-    "id": "N22",
+    "id": "N20",
     "x": 1206,
     "y": 1304,
-    "type": "facing",
+    "type": "corner",
     "concave": false,
     "pairKind": null
    },
    {
-    "id": "N23",
-    "x": 1233.5664293708671,
-    "y": 1303,
+    "id": "N21",
+    "x": 1233.9999169283567,
+    "y": 1303.5483884366395,
     "type": "facing",
     "concave": false,
     "pairKind": "landmark"
    },
    {
-    "id": "N24",
+    "id": "N22",
     "x": 1268,
     "y": 1303,
     "type": "corner",
@@ -1907,17 +1855,33 @@
     "pairKind": null
    },
    {
-    "id": "N25",
-    "x": 1269,
-    "y": 1323.8131319872787,
+    "id": "N23",
+    "x": 1268.1070603200496,
+    "y": 1320.9861337683524,
+    "type": "facing",
+    "concave": false,
+    "pairKind": "landmark"
+   },
+   {
+    "id": "N24",
+    "x": 1268.1428875110716,
+    "y": 1327.0051018600532,
     "type": "landmark",
     "concave": false,
     "pairKind": null
    },
    {
+    "id": "N25",
+    "x": 1268.422619047619,
+    "y": 1374,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
     "id": "N26",
-    "x": 1269,
-    "y": 1375.8563853034289,
+    "x": 1268.75,
+    "y": 1429,
     "type": "facing",
     "concave": false,
     "pairKind": null
@@ -1925,37 +1889,21 @@
    {
     "id": "N27",
     "x": 1269,
-    "y": 1389.4537841922665,
-    "type": "facing",
-    "concave": false,
-    "pairKind": null
-   },
-   {
-    "id": "N28",
-    "x": 1269,
-    "y": 1401,
-    "type": "facing",
-    "concave": false,
-    "pairKind": null
-   },
-   {
-    "id": "N29",
-    "x": 1269,
     "y": 1471,
     "type": "corner",
     "concave": true,
     "pairKind": null
    },
    {
-    "id": "N30",
-    "x": 1411.8765103961175,
+    "id": "N28",
+    "x": 1411.9993008136694,
     "y": 1471,
     "type": "facing",
     "concave": false,
     "pairKind": "landmark"
    },
    {
-    "id": "N31",
+    "id": "N29",
     "x": 1493,
     "y": 1471,
     "type": "landmark",
@@ -1963,15 +1911,15 @@
     "pairKind": null
    },
    {
-    "id": "N32",
-    "x": 1525.8779762644888,
+    "id": "N30",
+    "x": 1525.998906223364,
     "y": 1471,
     "type": "facing",
     "concave": false,
     "pairKind": "landmark"
    },
    {
-    "id": "N33",
+    "id": "N31",
     "x": 1610,
     "y": 1471,
     "type": "corner",
@@ -1979,24 +1927,40 @@
     "pairKind": null
    },
    {
-    "id": "N34",
-    "x": 1610,
+    "id": "N32",
+    "x": 1610.4573643410852,
     "y": 1412,
     "type": "facing",
     "concave": false,
     "pairKind": "landmark"
    },
    {
-    "id": "N35",
-    "x": 1610,
+    "id": "N33",
+    "x": 1610.6744186046512,
     "y": 1384,
     "type": "facing",
     "concave": false,
     "pairKind": null
    },
    {
-    "id": "N36",
+    "id": "N34",
     "x": 1611,
+    "y": 1342,
+    "type": "corner",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N35",
+    "x": 1666.9984181774603,
+    "y": 1342,
+    "type": "facing",
+    "concave": false,
+    "pairKind": "landmark"
+   },
+   {
+    "id": "N36",
+    "x": 1673,
     "y": 1342,
     "type": "facing",
     "concave": false,
@@ -2004,22 +1968,14 @@
    },
    {
     "id": "N37",
-    "x": 1666.644930468641,
-    "y": 1342,
-    "type": "facing",
-    "concave": false,
-    "pairKind": "landmark"
-   },
-   {
-    "id": "N38",
     "x": 1733,
     "y": 1342,
-    "type": "facing",
+    "type": "corner",
     "concave": false,
     "pairKind": null
    },
    {
-    "id": "N39",
+    "id": "N38",
     "x": 1733,
     "y": 1383,
     "type": "corner",
@@ -2027,7 +1983,7 @@
     "pairKind": null
    },
    {
-    "id": "N40",
+    "id": "N39",
     "x": 1673,
     "y": 1384,
     "type": "corner",
@@ -2035,7 +1991,7 @@
     "pairKind": null
    },
    {
-    "id": "N41",
+    "id": "N40",
     "x": 1673,
     "y": 1412,
     "type": "landmark",
@@ -2043,15 +1999,15 @@
     "pairKind": null
    },
    {
-    "id": "N42",
+    "id": "N41",
     "x": 1673,
-    "y": 1471.4883574199225,
+    "y": 1471,
     "type": "facing",
     "concave": false,
     "pairKind": null
    },
    {
-    "id": "N43",
+    "id": "N42",
     "x": 1673,
     "y": 1478,
     "type": "corner",
@@ -2059,18 +2015,26 @@
     "pairKind": null
    },
    {
-    "id": "N44",
+    "id": "N43",
     "x": 1737,
     "y": 1478,
+    "type": "corner",
+    "concave": true,
+    "pairKind": null
+   },
+   {
+    "id": "N44",
+    "x": 1737.0487804878048,
+    "y": 1476,
     "type": "facing",
     "concave": false,
-    "pairKind": null
+    "pairKind": "landmark"
    },
    {
     "id": "N45",
     "x": 1738,
     "y": 1437,
-    "type": "facing",
+    "type": "corner",
     "concave": false,
     "pairKind": null
    },
@@ -2100,7 +2064,7 @@
    },
    {
     "id": "N49",
-    "x": 1854.8898607207684,
+    "x": 1854.997767449588,
     "y": 1476,
     "type": "facing",
     "concave": false,
@@ -2116,7 +2080,7 @@
    },
    {
     "id": "N51",
-    "x": 2147.8981488478494,
+    "x": 2147.996753283277,
     "y": 1476,
     "type": "facing",
     "concave": false,
@@ -2134,20 +2098,12 @@
     "id": "N53",
     "x": 2285,
     "y": 1476,
-    "type": "facing",
+    "type": "corner",
     "concave": false,
     "pairKind": null
    },
    {
     "id": "N54",
-    "x": 2285,
-    "y": 1491.361879865217,
-    "type": "facing",
-    "concave": false,
-    "pairKind": null
-   },
-   {
-    "id": "N55",
     "x": 2285,
     "y": 1515,
     "type": "corner",
@@ -2155,81 +2111,89 @@
     "pairKind": null
    },
    {
-    "id": "N56",
+    "id": "N55",
     "x": 2157,
-    "y": 1517,
+    "y": 1515.2381395348837,
     "type": "facing",
     "concave": false,
     "pairKind": "landmark"
    },
    {
-    "id": "N57",
-    "x": 2148,
-    "y": 1517,
+    "id": "N56",
+    "x": 2147.996753283277,
+    "y": 1515.2548897613335,
     "type": "landmark",
     "concave": false,
     "pairKind": null
    },
    {
-    "id": "N58",
+    "id": "N57",
     "x": 1932,
-    "y": 1517,
+    "y": 1515.6567441860466,
     "type": "facing",
     "concave": false,
     "pairKind": "landmark"
    },
    {
-    "id": "N59",
-    "x": 1855,
-    "y": 1517,
+    "id": "N58",
+    "x": 1854.997767449588,
+    "y": 1515.8000041535822,
     "type": "landmark",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N59",
+    "x": 1813,
+    "y": 1515.8781395348838,
+    "type": "facing",
     "concave": false,
     "pairKind": null
    },
    {
     "id": "N60",
-    "x": 1813,
-    "y": 1517,
-    "type": "facing",
-    "concave": false,
-    "pairKind": null
-   },
-   {
-    "id": "N61",
     "x": 1769,
-    "y": 1517,
+    "y": 1515.96,
     "type": "facing",
     "concave": false,
     "pairKind": "landmark"
    },
    {
+    "id": "N61",
+    "x": 1737,
+    "y": 1516.019534883721,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
     "id": "N62",
-    "x": 1738,
-    "y": 1517,
+    "x": 1673,
+    "y": 1516.1386046511627,
     "type": "facing",
     "concave": false,
     "pairKind": null
    },
    {
     "id": "N63",
-    "x": 1667,
-    "y": 1517,
+    "x": 1666.9984181774603,
+    "y": 1516.149770384786,
     "type": "landmark",
     "concave": false,
     "pairKind": null
    },
    {
     "id": "N64",
-    "x": 1611,
-    "y": 1517,
+    "x": 1610,
+    "y": 1516.2558139534883,
     "type": "facing",
     "concave": false,
     "pairKind": null
    },
    {
     "id": "N65",
-    "x": 1526,
-    "y": 1517,
+    "x": 1525.998906223364,
+    "y": 1516.4120950581892,
     "type": "landmark",
     "concave": false,
     "pairKind": null
@@ -2237,15 +2201,15 @@
    {
     "id": "N66",
     "x": 1493,
-    "y": 1517,
+    "y": 1516.473488372093,
     "type": "facing",
     "concave": false,
     "pairKind": "landmark"
    },
    {
     "id": "N67",
-    "x": 1412,
-    "y": 1517,
+    "x": 1411.9993008136694,
+    "y": 1516.6241873473234,
     "type": "landmark",
     "concave": false,
     "pairKind": null
@@ -2253,21 +2217,29 @@
    {
     "id": "N68",
     "x": 1269,
-    "y": 1517,
+    "y": 1516.8902325581396,
     "type": "facing",
     "concave": false,
     "pairKind": null
    },
    {
     "id": "N69",
-    "x": 1234,
-    "y": 1517,
+    "x": 1268.1428875110716,
+    "y": 1516.891827186026,
+    "type": "facing",
+    "concave": false,
+    "pairKind": "landmark"
+   },
+   {
+    "id": "N70",
+    "x": 1233.9999169283567,
+    "y": 1516.9553489917612,
     "type": "landmark",
     "concave": false,
     "pairKind": null
    },
    {
-    "id": "N70",
+    "id": "N71",
     "x": 1210,
     "y": 1517,
     "type": "corner",
@@ -2275,15 +2247,31 @@
     "pairKind": null
    },
    {
-    "id": "N71",
+    "id": "N72",
+    "x": 1208.9545454545455,
+    "y": 1471,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N73",
     "x": 1208,
+    "y": 1429,
+    "type": "corner",
+    "concave": true,
+    "pairKind": null
+   },
+   {
+    "id": "N74",
+    "x": 1204,
     "y": 1429,
     "type": "facing",
     "concave": false,
     "pairKind": null
    },
    {
-    "id": "N72",
+    "id": "N75",
     "x": 1100,
     "y": 1429,
     "type": "landmark",
@@ -2291,23 +2279,15 @@
     "pairKind": null
    },
    {
-    "id": "N73",
-    "x": 886,
+    "id": "N76",
+    "x": 888,
     "y": 1429,
     "type": "landmark",
     "concave": false,
     "pairKind": null
    },
    {
-    "id": "N74",
-    "x": 680,
-    "y": 1429,
-    "type": "facing",
-    "concave": false,
-    "pairKind": "landmark"
-   },
-   {
-    "id": "N75",
+    "id": "N77",
     "x": 673,
     "y": 1429,
     "type": "landmark",
@@ -2315,23 +2295,15 @@
     "pairKind": null
    },
    {
-    "id": "N76",
-    "x": 581,
-    "y": 1429,
-    "type": "facing",
-    "concave": false,
-    "pairKind": null
-   },
-   {
-    "id": "N77",
-    "x": 556.0263340389906,
-    "y": 1429,
-    "type": "facing",
-    "concave": false,
-    "pairKind": null
-   },
-   {
     "id": "N78",
+    "x": 575,
+    "y": 1429,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N79",
     "x": 546,
     "y": 1429,
     "type": "landmark",
@@ -2339,7 +2311,7 @@
     "pairKind": null
    },
    {
-    "id": "N79",
+    "id": "N80",
     "x": 444,
     "y": 1429,
     "type": "facing",
@@ -2347,15 +2319,23 @@
     "pairKind": null
    },
    {
-    "id": "N80",
-    "x": 260,
+    "id": "N81",
+    "x": 369,
+    "y": 1429,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N82",
+    "x": 266,
     "y": 1429,
     "type": "facing",
     "concave": false,
     "pairKind": "landmark"
    },
    {
-    "id": "N81",
+    "id": "N83",
     "x": 188,
     "y": 1429,
     "type": "landmark",
@@ -2363,15 +2343,15 @@
     "pairKind": null
    },
    {
-    "id": "N82",
+    "id": "N84",
     "x": 161,
     "y": 1429,
-    "type": "facing",
+    "type": "corner",
     "concave": false,
     "pairKind": null
    },
    {
-    "id": "N83",
+    "id": "N85",
     "x": 160,
     "y": 1401,
     "type": "corner",
@@ -2379,7 +2359,7 @@
     "pairKind": null
    },
    {
-    "id": "N84",
+    "id": "N86",
     "x": 188,
     "y": 1401,
     "type": "facing",
@@ -2387,15 +2367,15 @@
     "pairKind": "landmark"
    },
    {
-    "id": "N85",
+    "id": "N87",
     "x": 266,
-    "y": 1400,
+    "y": 1401,
     "type": "landmark",
     "concave": false,
     "pairKind": null
    },
    {
-    "id": "N86",
+    "id": "N88",
     "x": 369,
     "y": 1401,
     "type": "corner",
@@ -2403,15 +2383,15 @@
     "pairKind": null
    },
    {
-    "id": "N87",
+    "id": "N89",
     "x": 369,
-    "y": 1379.5598279386932,
+    "y": 1361,
     "type": "facing",
     "concave": false,
     "pairKind": null
    },
    {
-    "id": "N88",
+    "id": "N90",
     "x": 369,
     "y": 1251,
     "type": "facing",
@@ -2419,7 +2399,7 @@
     "pairKind": null
    },
    {
-    "id": "N89",
+    "id": "N91",
     "x": 369,
     "y": 1210,
     "type": "corner",
@@ -2427,31 +2407,47 @@
     "pairKind": null
    },
    {
-    "id": "N90",
-    "x": 231.56561339484568,
-    "y": 1209,
-    "type": "facing",
-    "concave": false,
-    "pairKind": "landmark"
-   },
-   {
-    "id": "N91",
-    "x": 94,
-    "y": 1209,
-    "type": "facing",
-    "concave": false,
-    "pairKind": "landmark"
-   },
-   {
     "id": "N92",
-    "x": 48,
-    "y": 1209,
+    "x": 309,
+    "y": 1209.8130841121495,
     "type": "facing",
     "concave": false,
     "pairKind": null
    },
    {
     "id": "N93",
+    "x": 233.01202293850108,
+    "y": 1209.576361442176,
+    "type": "facing",
+    "concave": false,
+    "pairKind": "landmark"
+   },
+   {
+    "id": "N94",
+    "x": 150,
+    "y": 1209.3177570093458,
+    "type": "facing",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N95",
+    "x": 94,
+    "y": 1209.1433021806854,
+    "type": "facing",
+    "concave": false,
+    "pairKind": "landmark"
+   },
+   {
+    "id": "N96",
+    "x": 48,
+    "y": 1209,
+    "type": "corner",
+    "concave": false,
+    "pairKind": null
+   },
+   {
+    "id": "N97",
     "x": 48,
     "y": 1150,
     "type": "corner",
@@ -2459,7 +2455,7 @@
     "pairKind": null
    },
    {
-    "id": "N94",
+    "id": "N98",
     "x": 94,
     "y": 1150,
     "type": "landmark",
@@ -2467,7 +2463,7 @@
     "pairKind": null
    },
    {
-    "id": "N95",
+    "id": "N99",
     "x": 150,
     "y": 1150,
     "type": "corner",
@@ -2475,7 +2471,7 @@
     "pairKind": null
    },
    {
-    "id": "N96",
+    "id": "N100",
     "x": 150,
     "y": 1109,
     "type": "corner",
@@ -2483,15 +2479,15 @@
     "pairKind": null
    },
    {
-    "id": "N97",
-    "x": 233,
-    "y": 1111,
+    "id": "N101",
+    "x": 233.01202293850108,
+    "y": 1110.0441763891636,
     "type": "landmark",
     "concave": false,
     "pairKind": null
    },
    {
-    "id": "N98",
+    "id": "N102",
     "x": 309,
     "y": 1111,
     "type": "corner",
@@ -2499,7 +2495,7 @@
     "pairKind": null
    },
    {
-    "id": "N99",
+    "id": "N103",
     "x": 311,
     "y": 1052,
     "type": "corner",
@@ -2507,7 +2503,7 @@
     "pairKind": null
    },
    {
-    "id": "N100",
+    "id": "N104",
     "x": 353,
     "y": 1055,
     "type": "corner",
@@ -2515,20 +2511,12 @@
     "pairKind": null
    },
    {
-    "id": "N101",
-    "x": 354,
+    "id": "N105",
+    "x": 353.81632653061223,
     "y": 1045,
     "type": "facing",
     "concave": false,
     "pairKind": "landmark"
-   },
-   {
-    "id": "N102",
-    "x": 357,
-    "y": 1023,
-    "type": "facing",
-    "concave": false,
-    "pairKind": null
    }
   ],
   "edges": [
@@ -3039,247 +3027,252 @@
    },
    {
     "a": "N102",
+    "b": "N103",
+    "type": "wall"
+   },
+   {
+    "a": "N103",
+    "b": "N104",
+    "type": "wall"
+   },
+   {
+    "a": "N104",
+    "b": "N105",
+    "type": "wall"
+   },
+   {
+    "a": "N105",
     "b": "N01",
     "type": "wall"
    },
    {
-    "a": "N94",
-    "b": "N91",
+    "a": "N98",
+    "b": "N95",
     "type": "cross"
    },
    {
-    "a": "N97",
-    "b": "N90",
+    "a": "N101",
+    "b": "N93",
     "type": "cross"
    },
    {
-    "a": "N41",
-    "b": "N34",
-    "type": "cross"
-   },
-   {
-    "a": "N46",
-    "b": "N61",
-    "type": "cross"
-   },
-   {
-    "a": "N85",
-    "b": "N80",
-    "type": "cross"
-   },
-   {
-    "a": "N81",
-    "b": "N84",
-    "type": "cross"
-   },
-   {
-    "a": "N78",
-    "b": "N11",
-    "type": "cross"
-   },
-   {
-    "a": "N16",
-    "b": "N74",
-    "type": "cross"
-   },
-   {
-    "a": "N75",
-    "b": "N15",
-    "type": "cross"
-   },
-   {
-    "a": "N17",
-    "b": "N73",
-    "type": "cross"
-   },
-   {
-    "a": "N21",
-    "b": "N25",
-    "type": "cross"
-   },
-   {
-    "a": "N25",
-    "b": "N20",
-    "type": "cross"
-   },
-   {
-    "a": "N72",
-    "b": "N18",
-    "type": "cross"
-   },
-   {
-    "a": "N31",
-    "b": "N66",
-    "type": "cross"
-   },
-   {
-    "a": "N69",
-    "b": "N23",
-    "type": "cross"
-   },
-   {
-    "a": "N67",
-    "b": "N30",
-    "type": "cross"
-   },
-   {
-    "a": "N65",
+    "a": "N40",
     "b": "N32",
     "type": "cross"
    },
    {
-    "a": "N63",
-    "b": "N37",
+    "a": "N46",
+    "b": "N60",
     "type": "cross"
    },
    {
-    "a": "N59",
+    "a": "N87",
+    "b": "N82",
+    "type": "cross"
+   },
+   {
+    "a": "N83",
+    "b": "N86",
+    "type": "cross"
+   },
+   {
+    "a": "N79",
+    "b": "N09",
+    "type": "cross"
+   },
+   {
+    "a": "N77",
+    "b": "N12",
+    "type": "cross"
+   },
+   {
+    "a": "N76",
+    "b": "N15",
+    "type": "cross"
+   },
+   {
+    "a": "N19",
+    "b": "N23",
+    "type": "cross"
+   },
+   {
+    "a": "N24",
+    "b": "N18",
+    "type": "cross"
+   },
+   {
+    "a": "N24",
+    "b": "N69",
+    "type": "cross"
+   },
+   {
+    "a": "N75",
+    "b": "N16",
+    "type": "cross"
+   },
+   {
+    "a": "N29",
+    "b": "N41",
+    "type": "cross"
+   },
+   {
+    "a": "N29",
+    "b": "N66",
+    "type": "cross"
+   },
+   {
+    "a": "N70",
+    "b": "N21",
+    "type": "cross"
+   },
+   {
+    "a": "N67",
+    "b": "N28",
+    "type": "cross"
+   },
+   {
+    "a": "N65",
+    "b": "N30",
+    "type": "cross"
+   },
+   {
+    "a": "N63",
+    "b": "N35",
+    "type": "cross"
+   },
+   {
+    "a": "N58",
     "b": "N49",
     "type": "cross"
    },
    {
     "a": "N50",
-    "b": "N58",
+    "b": "N44",
+    "type": "cross"
+   },
+   {
+    "a": "N50",
+    "b": "N57",
     "type": "cross"
    },
    {
     "a": "N52",
-    "b": "N56",
+    "b": "N55",
     "type": "cross"
    },
    {
-    "a": "N57",
+    "a": "N56",
     "b": "N51",
     "type": "cross"
    },
    {
     "a": "N04",
-    "b": "N101",
+    "b": "N105",
     "type": "cross"
    },
    {
-    "a": "N03",
-    "b": "N102",
+    "a": "N07",
+    "b": "N90",
     "type": "cross"
    },
    {
     "a": "N08",
-    "b": "N03",
+    "b": "N89",
     "type": "cross"
    },
    {
-    "a": "N09",
-    "b": "N88",
+    "a": "N08",
+    "b": "N80",
     "type": "cross"
    },
    {
-    "a": "N10",
-    "b": "N79",
+    "a": "N11",
+    "b": "N78",
     "type": "cross"
    },
    {
-    "a": "N12",
-    "b": "N87",
+    "a": "N17",
+    "b": "N25",
     "type": "cross"
    },
    {
-    "a": "N13",
-    "b": "N77",
+    "a": "N17",
+    "b": "N74",
     "type": "cross"
    },
    {
-    "a": "N14",
-    "b": "N76",
+    "a": "N27",
+    "b": "N72",
     "type": "cross"
    },
    {
-    "a": "N19",
-    "b": "N26",
-    "type": "cross"
-   },
-   {
-    "a": "N22",
-    "b": "N71",
-    "type": "cross"
-   },
-   {
-    "a": "N24",
-    "b": "N22",
-    "type": "cross"
-   },
-   {
-    "a": "N29",
+    "a": "N27",
     "b": "N68",
     "type": "cross"
    },
    {
-    "a": "N33",
-    "b": "N42",
+    "a": "N31",
+    "b": "N41",
     "type": "cross"
    },
    {
-    "a": "N36",
+    "a": "N31",
     "b": "N64",
     "type": "cross"
    },
    {
-    "a": "N38",
-    "b": "N36",
+    "a": "N39",
+    "b": "N33",
     "type": "cross"
    },
    {
     "a": "N39",
-    "b": "N38",
+    "b": "N36",
     "type": "cross"
    },
    {
-    "a": "N40",
-    "b": "N35",
-    "type": "cross"
-   },
-   {
-    "a": "N43",
-    "b": "N63",
-    "type": "cross"
-   },
-   {
-    "a": "N45",
+    "a": "N42",
     "b": "N62",
     "type": "cross"
    },
    {
-    "a": "N47",
-    "b": "N45",
+    "a": "N43",
+    "b": "N61",
     "type": "cross"
    },
    {
     "a": "N48",
-    "b": "N60",
+    "b": "N59",
     "type": "cross"
    },
    {
-    "a": "N55",
-    "b": "N53",
+    "a": "N73",
+    "b": "N26",
     "type": "cross"
    },
    {
-    "a": "N83",
-    "b": "N82",
+    "a": "N88",
+    "b": "N81",
     "type": "cross"
    },
    {
-    "a": "N89",
+    "a": "N91",
+    "b": "N05",
+    "type": "cross"
+   },
+   {
+    "a": "N91",
     "b": "N02",
     "type": "cross"
    },
    {
-    "a": "N93",
-    "b": "N92",
+    "a": "N99",
+    "b": "N94",
     "type": "cross"
    },
    {
-    "a": "N100",
-    "b": "N05",
+    "a": "N102",
+    "b": "N92",
     "type": "cross"
    }
   ]
