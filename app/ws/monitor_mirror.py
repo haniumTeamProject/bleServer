@@ -124,6 +124,39 @@ async def publish(payload: dict | None) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 측정 · 전환 — `/monitor` 그래프에 남기려면 `/ws` 로 가야 한다
+#
+# 이 둘은 RSSI 와 달리 **사건**이라 모아 보낼 수 없다. 그때그때 뿌린다.
+# ---------------------------------------------------------------------------
+def measure_control(event: str, session_id: str, label: str = "") -> dict:
+    """`/monitor` 의 "측정 시작/종료" 버튼과 **같은 메시지**를 만든다.
+
+    목적지가 정해지는 순간이 곧 구간의 시작이고 도착이 끝인데, 폰을 들고 걷는
+    사람은 화면 버튼을 못 누른다. 서버가 대신 눌러주는 셈이다.
+    """
+    return {
+        "type": "measure",
+        "event": event,              # start | end
+        "sessionId": session_id,
+        "label": label,
+        "device": "phone",
+        "timestamp": int(time.time() * 1000),
+    }
+
+
+def transition_msg(session, t: dict) -> dict:
+    """추적기 판정을 `/monitor` 가 아는 모양으로.
+
+    키를 화면용 이름으로 바꾼다 — 그래프의 세로선 라벨에 `104-1` 대신 `B1` 이 뜨게.
+    """
+    msg = dict(t)
+    name = msg.get("beacon") or msg.get("name")
+    if name:
+        msg["name"] = display_key(getattr(session, "floor_id", None), name).split("|")[-1]
+    return msg
+
+
+# ---------------------------------------------------------------------------
 # 경로
 # ---------------------------------------------------------------------------
 def set_route(plan, landmark, heard: str = "") -> None:

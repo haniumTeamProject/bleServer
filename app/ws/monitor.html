@@ -246,6 +246,29 @@
       서버가 목적지를 해석하고 경로까지 만들어 추적을 시작합니다.
     </div>
 
+    <!-- 판정 설정 — 아래 "경로 진행 추적(테스트)" 카드와 같은 값을 공유한다.
+         경로를 손으로 등록하던 시절에는 그 카드가 유일한 입구였는데, 이제 경로는
+         목적지를 말하면 DB 로 자동으로 만들어지므로 여기서도 만질 수 있어야 한다. -->
+    <div class="map-bar" style="flex-wrap:wrap;">
+      <label>판정 방식
+        <select id="navModeInput">
+          <option value="confirm">2단계 확인 (권장 · 0.5초 대기 + 5dB)</option>
+          <option value="segment">구간 분할</option>
+          <option value="trend">기존 (양끝 4개씩)</option>
+        </select>
+      </label>
+      <label>추세 임계값(dB) <input id="navThreshInput" type="number" value="2.5" step="0.5" style="width:70px;"></label>
+      <label>다음 비콘 최소(dBm) <input id="navMinNextInput" type="number" value="-85" step="1" style="width:70px;"></label>
+      <label>창 길이(초) <input id="navSegWindowInput" type="number" value="2.0" step="0.5" min="0.5" style="width:70px;"></label>
+      <label>구간 수 <input id="navSegmentsInput" type="number" value="5" min="2" max="20" style="width:60px;"></label>
+      <label>전진 연속 <input id="navFwdStreakInput" type="number" value="2" min="1" max="10" style="width:60px;"></label>
+      <label>후퇴 연속 <input id="navBackStreakInput" type="number" value="3" min="1" max="10" style="width:60px;"></label>
+    </div>
+    <div class="hint" style="margin:-4px 0 10px;">
+      폰이 안 붙어 있어도 <b>미리 정해두면 됩니다</b> — 서버가 값을 들고 있다가 목적지가 정해질 때 그 설정으로 경로를 겁니다.
+      이미 진행 중인 안내에는 반영되지 않습니다(다시 목적지를 말해야 적용).
+    </div>
+
     <div id="navStatus" class="hint" style="margin-bottom:10px;">층을 고르면 지도를 불러옵니다.</div>
     <div id="navRouteChips" class="chips" style="margin-bottom:10px;"></div>
     <div class="map-stage">
@@ -911,6 +934,10 @@
     nav.mask = await loadImage(project.maskDataUrl);
 
     // 출발 비콘 목록 — 비워두면 지금 가장 세게 잡히는 것에서 출발한다.
+    //
+    // 폰이 붙어 경로가 만들어지면 서버가 실제로 고른 비콘으로 바꿔준다
+    // (navSyncServerRoute). "자동"이라고만 떠 있으면 어디서 출발한 것으로 잡혔는지
+    // 화면에서 확인할 방법이 없다.
     navFromSelect.innerHTML = '<option value="">자동 (가장 센 비콘)</option>';
     (project.beacons || []).forEach(b => {
       const opt = document.createElement('option');
@@ -1183,6 +1210,16 @@
       nav.routeBeacons = r.beacons || [];
       nav.destination = r.destinationId || null;
 
+      // 서버가 실제로 고른 출발 비콘을 **"자동" 항목의 이름에만** 적는다.
+      //
+      // 선택값 자체를 바꾸면 안 된다. 목적지를 보낼 때 `fromBeacon: navFromSelect.value`
+      // 를 싣기 때문에, 값을 써넣는 순간 "자동"이 그 비콘 고정으로 바뀌어 다음 경로부터
+      // 계속 같은 곳에서 출발하게 된다(실제로 그렇게 굳었다).
+      const auto = navFromSelect.options[0];
+      if (auto && auto.value === '') {
+        auto.textContent = r.from ? `자동 (지금: ${r.from})` : '자동 (가장 센 비콘)';
+      }
+
       const missing = new Set(r.missing || []);
       navRouteChips.innerHTML = (r.beacons || []).map((b, i) => {
         const off = missing.has(b);
@@ -1256,22 +1293,54 @@
     }));
   }
 
-  ['modeInput', 'threshInput', 'minNextInput', 'segWindowInput', 'segmentsInput',
-   'fwdStreakInput', 'backStreakInput']
-    .forEach(id => document.getElementById(id)?.addEventListener('change', pushTuning));
+  // 판정 설정 입력칸이 두 군데다 — 지도 카드(nav*)와 아래 경로 추적 카드.
+  //
+  // 값을 두 벌로 들고 있으면 어느 쪽이 진짜인지 알 수 없어지므로, 어느 쪽을 만지든
+  // 반대쪽에 그대로 복사한 뒤 한 번만 서버로 보낸다. 화면에 보이는 값과 서버가 쓰는
+  // 값이 항상 같아야 실측 중에 헷갈리지 않는다.
+  const TUNING_PAIRS = [
+    ['modeInput', 'navModeInput'],
+    ['threshInput', 'navThreshInput'],
+    ['minNextInput', 'navMinNextInput'],
+    ['segWindowInput', 'navSegWindowInput'],
+    ['segmentsInput', 'navSegmentsInput'],
+    ['fwdStreakInput', 'navFwdStreakInput'],
+    ['backStreakInput', 'navBackStreakInput'],
+  ];
+
+  function mirrorTuning(changedId) {
+    for (const [a, b] of TUNING_PAIRS) {
+      const from = changedId === b ? b : a;
+      const to = from === a ? b : a;
+      const src = document.getElementById(from), dst = document.getElementById(to);
+      if (src && dst && dst.value !== src.value) dst.value = src.value;
+    }
+  }
+
+  TUNING_PAIRS.flat().forEach(id => {
+    document.getElementById(id)?.addEventListener('change', (e) => {
+      mirrorTuning(e.target.id);
+      pushTuning();
+      syncModeInputs();
+    });
+  });
   ws.addEventListener('open', () => setTimeout(pushTuning, 120));
 
-  // 기존 방식은 창·구간 설정을 쓰지 않으므로 입력칸을 흐리게 해서 혼동을 막는다
+  // 창·구간은 "기존(trend)" 방식만 안 쓴다.
+  //
+  // 예전에는 `=== 'segment'` 로 비교해서 **2단계 확인에서도 흐려졌는데** 그건 틀렸다.
+  // confirm 은 구간 방식 위에 확인 단계를 얹은 것이라 창·구간을 그대로 쓴다
+  // (path_tracker._trend 가 segment/confirm 을 같이 처리한다). 기본 모드가 confirm 이라
+  // 정작 실제로 쓰이는 값을 못 만지는 상태였다.
   function syncModeInputs() {
-    const seg = document.getElementById('modeInput').value === 'segment';
+    const uses = document.getElementById('modeInput').value !== 'trend';
     ['segWinLabel', 'segCntLabel'].forEach(id => {
       const el = document.getElementById(id);
-      if (el) el.style.opacity = seg ? '1' : '0.4';
+      if (el) el.style.opacity = uses ? '1' : '0.4';
     });
-    document.getElementById('segWindowInput').disabled = !seg;
-    document.getElementById('segmentsInput').disabled = !seg;
+    ['segWindowInput', 'segmentsInput', 'navSegWindowInput', 'navSegmentsInput']
+      .forEach(id => { const el = document.getElementById(id); if (el) el.disabled = !uses; });
   }
-  document.getElementById('modeInput').addEventListener('change', syncModeInputs);
   syncModeInputs();
 
   document.getElementById('resetBtn').onclick = () => {

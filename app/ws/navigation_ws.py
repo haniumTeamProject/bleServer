@@ -41,7 +41,7 @@ import uuid
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.nav.map_source import MapDataError
-from app.ws import landmark_matcher, llm_matcher, monitor_mirror, navigation
+from app.ws import landmark_matcher, llm_matcher, monitor_mirror, nav_recorder, navigation
 from app.ws.path_tracker import PathTracker
 from app.ws.rssi_filter import RssiFilterPipeline
 
@@ -93,6 +93,23 @@ class NavSession:
         # 연결(폰)로 가고 이건 `/ws` 전체로 간다. 한 목록에 담으면 폰이 자기가
         # 못 알아듣는 메시지를 받는다.
         self.mirror: dict | None = None
+
+        # `/ws` 로 그때그때 뿌릴 사건들(측정 시작·종료, 전환). RSSI 와 달리 모아
+        # 보낼 수 없어서 따로 큐에 담고 소켓 루프가 비운다.
+        self.mirror_events: list[dict] = []
+
+        # 실측 기록. 목적지가 정해지면 열리고 도착·취소·끊김에 닫힌다.
+        self.recorder: "nav_recorder.NavRecorder | None" = None
+        self.measuring = False
+
+    def stop_recording(self, reason: str) -> None:
+        if self.recorder is not None:
+            self.recorder.close(reason)
+            self.recorder = None
+        # `/monitor` 의 측정도 같이 끝낸다 — 서버가 버튼을 대신 눌러주는 셈이다.
+        if self.measuring:
+            self.measuring = False
+            self.mirror_events.append(monitor_mirror.measure_control("end", self.id))
 
     # -- 되묻기 후보 ------------------------------------------------------
     def take_pending(self) -> list[landmark_matcher.Landmark]:
@@ -359,6 +376,9 @@ def on_beacons(session: NavSession, data: dict) -> list[dict]:
         filtered = pipe.filter(float(rssi))
         session.tracker.feed(key, filtered)
         samples.append((key, float(rssi), filtered))
+        if session.recorder is not None:
+            session.recorder.sample(
+                monitor_mirror.display_key(session.floor_id, key), float(rssi), filtered)
 
     # `/monitor` 로 넘길 것. **판정(evaluate)보다 먼저 만들지 않는다** — 아래에서
     # 인덱스가 옮겨갈 수 있고, 그 전 상태를 그리면 화면이 한 박자 늦는다.
@@ -387,7 +407,14 @@ def on_beacons(session: NavSession, data: dict) -> list[dict]:
 
     transition = session.tracker.evaluate()
     if transition is not None:
+        if session.recorder is not None:
+            session.recorder.transition(transition, session.tracker.last_numbers,
+                                        session.tracker.last_verdict)
         out_msgs.append(_transition_message(session, transition))
+        # 판정 시점을 `/monitor` 그래프에 세로선으로 남긴다.
+        session.mirror_events.append(monitor_mirror.transition_msg(session, transition))
+        if transition.get("isLast"):
+            session.stop_recording("도착")
     _log_track(session)
 
     session.mirror = monitor_mirror.beacon_payload(session, samples)
@@ -546,6 +573,35 @@ def _start_route(session: NavSession, lm: landmark_matcher.Landmark) -> list[dic
     session.tracker.set_path(plan.keys, **_track_tuning)
     _seed_index(session, plan.keys)
     session.tracker.start_session()
+
+    # 목적지가 정해지는 순간이 곧 구간 측정 시작이다 — 버튼을 누를 사람이 없어도
+    # 실제 출발 시점과 어긋나지 않는다.
+    session.stop_recording("새 목적지")
+    session.measuring = True
+    session.mirror_events.append(
+        monitor_mirror.measure_control("start", session.id, lm.name))
+    session.recorder = nav_recorder.start(session.id, lm.name, {
+        "목적지": lm.name,
+        "출발비콘": plan.from_beacon,
+        "거리m": round(plan.distance_m, 1),
+        "경로비콘": [s.beacon_id for s in plan.route.steps],
+        "추적키": list(plan.keys),
+        "안잡힌비콘": list(plan.missing),
+        "시작칸": session.tracker.index + 1,
+        "판정설정": {
+            "mode": session.tracker.mode,
+            "threshold": session.tracker.threshold,
+            "minNext": session.tracker.min_next,
+            "minGap": session.tracker.min_gap,
+            "requireTrend": session.tracker.require_trend,
+            "windowMs": session.tracker.window_ms,
+            "segments": session.tracker.segments,
+            "confirmDelayMs": session.tracker.confirm_delay_ms,
+            "confirmGap": session.tracker.confirm_gap,
+            "forwardStreakNeed": session.tracker.forward_streak_need,
+            "backStreakNeed": session.tracker.back_streak_need,
+        },
+    })
     print(f"[nav] {session.id} {plan.from_beacon} → {lm.name} "
           f"{plan.distance_m:.0f}m / {total}칸 · {session.tracker.index + 1}번에서 시작")
     return [out("start", "navigating", utterance=f"{lm.name}로 안내합니다.",
@@ -589,6 +645,7 @@ def on_list(session: NavSession, _data: dict) -> list[dict]:
 
 
 def on_cancel(session: NavSession, _data: dict) -> list[dict]:
+    session.stop_recording("취소")
     session.clear()
     monitor_mirror.clear_route()
     return [out("ready", "ready", utterance="안내를 취소했습니다.", listen_after=True,
@@ -684,11 +741,17 @@ async def navigation_endpoint(websocket: WebSocket):
             if session.mirror is not None:
                 payload, session.mirror = session.mirror, None
                 await monitor_mirror.publish(payload)
+            while session.mirror_events:
+                await monitor_mirror.publish(session.mirror_events.pop(0))
     except WebSocketDisconnect:
         pass
     finally:
         for t in list(tasks):
             t.cancel()
+        session.stop_recording("연결 끊김")
+        # stop_recording 이 "측정 종료" 를 큐에 넣는다. 루프가 끝난 뒤라 여기서 비운다.
+        while session.mirror_events:
+            await monitor_mirror.publish(session.mirror_events.pop(0))
         print(f"[nav {session.id}] ◆ 끊김  "
               f"건물={session.building_id} 층={session.floor_id} "
               f"목적지={session.destination.name if session.destination else '-'}")
@@ -701,6 +764,9 @@ async def _slow(websocket: WebSocket, session: NavSession, raw: str,
             msgs = await asyncio.to_thread(handle, session, raw)
         for m in msgs:
             await _send(websocket, m)
+        # 목적지 확정은 이 경로로 처리되므로 "측정 시작"도 여기서 나간다.
+        while session.mirror_events:
+            await monitor_mirror.publish(session.mirror_events.pop(0))
     except asyncio.CancelledError:
         raise
     except Exception as e:
