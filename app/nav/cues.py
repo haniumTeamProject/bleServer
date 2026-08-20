@@ -17,9 +17,9 @@
 본질은 같다 — 둘 다 "사건보다 앞선 비콘에서 미리 말한다". 다른 것은 **얼마나
 앞설지를 무엇으로 재느냐**다. 거리는 미터로, 소유는 칸수로 잰다.
 
-    비콘이 촘촘하면(2m)   2m 앞 = 한 칸 앞      → 같은 답
-    비콘이 성기면(6m)     2m 앞 = 직전 칸        → 거리는 여유를 못 채우고
-                          한 칸 앞 = 6m 앞       → 소유는 너무 일찍 말한다
+    비콘 간격이 좁으면(2m)  2m 앞 = 한 칸 앞      → 같은 답
+    비콘 간격이 넓으면(6m)  2m 앞 = 직전 칸       → 거리는 여유를 못 채우고
+                           한 칸 앞 = 6m 앞      → 소유는 너무 일찍 말한다
 
 어느 쪽이 나은지는 실제 배치에서 봐야 알 수 있어서 둘 다 남기고 `/monitor` 에서
 나란히 비교한다.
@@ -260,18 +260,36 @@ def nearest_owners(graph: Graph, node_ids: list[str], steps: list[StepInfo],
     """
     by_id = {b.id: b for b in beacons}
     route = [(i, by_id[s.beacon_id]) for i, s in enumerate(steps) if s.beacon_id in by_id]
+
+    # 경로에 같은 비콘이 두 번 이상 나오는가.
+    #
+    # ㄷ자로 들어갔다 나오는 복도에서는 같은 비콘 옆을 두 번 지난다.
+    # `to_beacon_sequence` 는 떨어진 중복을 접지 않는다(왕복 경로에서는 그게 맞다).
+    # 그러면 좌표만으로는 **어느 쪽 칸인지 가릴 수가 없다** — 같은 비콘이니 거리가
+    # 똑같이 나온다. 그때 앞쪽 칸을 집으면 한참 뒤에 있는 회전을 한참 앞 비콘이
+    # 말하게 된다(실측 4층 B25→412: 22m 회전을 6.1m 지점 비콘이 15.9m 앞서 안내).
+    repeated = len({b.id for _, b in route}) < len(route)
+
     owner: dict[str, int] = {}
+    floor_index = 0          # 여기보다 앞으로는 되돌아가지 않는다
     for nid in node_ids:
         node = graph.node(nid)
         if node is None:
             continue
         best_i, best_d = None, math.inf
         for i, b in route:
+            # **노드 순서를 건너뛰지 않게 한다.** 앞 노드가 쓴 칸보다 뒤로는 못 간다.
+            #
+            # 중복이 없으면 이 제약을 걸지 않는다 — 순서가 꼬일 일이 없는데 괜히
+            # 걸면 정상 배정까지 틀어진다.
+            if repeated and i < floor_index:
+                continue
             d = math.hypot(node.x - b.x, node.y - b.y) * meters_per_px
             if d < best_d:
                 best_i, best_d = i, d
         if best_i is not None:
             owner[nid] = best_i
+            floor_index = best_i
     return owner
 
 
@@ -316,10 +334,10 @@ def assign_by_hybrid(steps: list[StepInfo], cues: list[Cue],
     두 방식의 실패가 서로 반대라서 하나씩 막을 수 있다.
 
         소유   한 칸은 반드시 확보되지만, 그 한 칸이 15m 일 수도 있다(너무 이름)
-        거리   여유가 일정하지만, 비콘이 성기면 여유를 못 채워 직전 칸에 붙는다(너무 늦음)
+        거리   여유가 일정하지만, 비콘 간격이 넓으면 여유를 못 채워 직전 칸에 붙는다(너무 늦음)
 
     그래서 한 칸 앞을 먼저 잡고, 그 비콘에서 사건까지가 `MAX_LEAD_M` 을 넘으면
-    거리 방식으로 다시 고른다. 비콘이 촘촘한 데서는 소유와 같고, 성긴 데서만
+    거리 방식으로 다시 고른다. 비콘 간격이 좁은 데서는 소유와 같고, 넓은 데서만
     거리 쪽으로 물러난다.
 
     도착은 `assign_by_owner` 와 같이 마지막 비콘에 고정한다 — 앞당기면 거짓말이 된다.

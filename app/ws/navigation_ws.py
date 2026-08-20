@@ -78,6 +78,8 @@ class NavSession:
 
         self.destination: landmark_matcher.Landmark | None = None
         self.plan: navigation.RoutePlan | None = None
+        # 칸 번호별로 말할 문장. cues[i] = i+1 번째 칸.
+        self.cues: list[list[str]] = []
 
         # 로그 조절용 — 비콘은 초당 열 번씩 오므로 요약만 남긴다
         self.beacon_count = 0
@@ -125,6 +127,7 @@ class NavSession:
         self.pending = []
         self.destination = None
         self.plan = None
+        self.cues = []
         self.tracker.set_path([])
 
 
@@ -455,31 +458,93 @@ def _locate(session: NavSession, major, mac) -> bool:
 
 
 def _transition_message(session: NavSession, t: dict) -> dict:
-    """추적기 판정을 앱이 읽을 문장으로 바꾼다."""
+    """추적기 판정을 앱이 읽을 문장으로 바꾼다.
+
+    **문구는 `app/nav/cues.py` 가 만든 것을 그대로 읽는다.** 여기서 따로 짓지 않는다.
+    예전에는 `"3번. 왼쪽으로 꺾으세요."` 처럼 이 함수가 직접 만들었는데, 그러면
+    `/monitor` 에 보이는 안내와 폰이 듣는 안내가 서로 다른 코드에서 나와 갈라진다.
+    실제로 화면에는 횡단 안내가 뜨는데 폰은 번호만 읽는 상태였다.
+    """
     step = t.get("number")
     total = t.get("total")
     is_last = bool(t.get("isLast"))
     forward = t.get("direction") == "forward"
 
-    turn = None
-    if session.plan:
-        for s in session.plan.route.steps:
-            if s.seq == step:
-                turn = s.turn
-                break
+    if not forward:
+        return out("back", "navigating", utterance="멈추세요. 경로를 벗어났습니다.",
+                   haptic="warn", screen=screen_of(None, None, step, total))
+
+    # 이 칸에 배정된 안내. seq 는 1부터라 -1 한다.
+    said = _cues_for_step(session, step)
 
     if is_last:
         name = session.destination.name if session.destination else "목적지"
-        return out("arrive", "arrived", utterance=f"{name}입니다. 도착했습니다.",
+        # 도착 안내는 cue 로도 만들어지지만(마지막 비콘 고정), 그것이 없거나
+        # 다른 칸에 있을 수 있으므로 여기서 반드시 도착을 말한다.
+        text = " ".join(said) if said else f"{name}입니다."
+        return out("arrive", "arrived", utterance=text,
                    haptic="arrive", screen=screen_of(name, None, step, total))
 
-    if not forward:
-        return out("back", "navigating", utterance="경로를 벗어났습니다. 뒤로 돌아가세요.",
-                   haptic="warn", screen=screen_of(None, None, step, total))
+    if not said:
+        # 이 비콘에 할 말이 없다 — 표 2번 "일반 직진"은 무음이다.
+        # 화면의 진행 표시만 갱신한다.
+        return out("advance", "navigating", utterance=None,
+                   screen=screen_of(None, None, step, total))
 
-    turn_text = {"left": " 왼쪽으로 꺾으세요.", "right": " 오른쪽으로 꺾으세요."}.get(turn, "")
-    return out("advance", "navigating", utterance=f"{step}번.{turn_text}",
+    return out("advance", "navigating", utterance=" ".join(said),
                haptic="guide", screen=screen_of(None, None, step, total))
+
+
+def _build_cues(session: NavSession, plan, destination: str) -> list[list[str]]:
+    """경로 노드에서 안내 문구를 뽑아 **칸 번호대로** 늘어놓는다.
+
+    돌려주는 것은 `cues[i] = i+1 번째 칸에서 말할 문장들` 이다. 추적기는 칸 번호로
+    움직이므로 이 모양이면 조회가 한 번에 끝난다.
+
+    ── 왜 소유 방식인가 ──────────────────────────────────────────
+
+    세 가지 배정 방식이 있지만(`docs/경로안내_생성과_진행판정.md`), 실제 안내에는
+    소유 방식을 쓴다. 비콘 간격이 넓은 자리에서도 **한 칸은 반드시 확보**되어,
+    그 비콘의 판정이 늦어도 말할 기회를 놓치지 않기 때문이다. 얼마나 앞선
+    이야기인지는 문장에 거리로 담긴다("조금 뒤", "약 20미터 뒤").
+
+    실패해도 안내는 계속돼야 하므로 예외를 삼킨다 — 문구가 없으면 무음일 뿐,
+    진행 판정과 도착은 그대로 돈다.
+    """
+    try:
+        from app.database import SessionLocal
+        from app.nav import cues as cue_mod
+        from app.nav.db_map_source import DbMapSource
+
+        db = SessionLocal()
+        try:
+            source = DbMapSource(db)
+            beacons = source.beacons(plan.floor_id)
+            result = cue_mod.build(
+                source.graph(plan.floor_id), plan.route.node_ids, beacons,
+                source.beacon_match_radius_m(plan.floor_id),
+                source.meters_per_px(plan.floor_id), destination)
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[nav {session.id}] 안내 문구를 만들지 못함: {e!r}")
+        return []
+
+    by_step = [[c.text for c in st.cues_by_owner] for st in result.steps]
+    spoken = sum(len(x) for x in by_step)
+    print(f"[nav {session.id}] 안내 {spoken}개 / {len(by_step)}칸"
+          + (f" · 미배정 {len(result.orphan_owner)}개" if result.orphan_owner else ""))
+    return by_step
+
+
+def _cues_for_step(session: NavSession, step: int | None) -> list[str]:
+    """그 칸에서 말할 문장들. 없으면 빈 목록."""
+    if not step or not session.cues:
+        return []
+    index = step - 1
+    if 0 <= index < len(session.cues):
+        return session.cues[index]
+    return []
 
 
 def on_destination(session: NavSession, data: dict) -> list[dict]:
@@ -539,6 +604,7 @@ def _start_route(session: NavSession, lm: landmark_matcher.Landmark) -> list[dic
                     listen_after=True)]
 
     session.plan = plan
+    session.cues = _build_cues(session, plan, lm.name)
 
     # `/monitor` 가 지도에 그릴 수 있게 서버에 둔다. **추적이 걸리든 안 걸리든
     # 둔다** — 경로를 만드는 것과 추적을 거는 것은 다른 일이고, 한 칸짜리 경로도
@@ -604,7 +670,14 @@ def _start_route(session: NavSession, lm: landmark_matcher.Landmark) -> list[dic
     })
     print(f"[nav] {session.id} {plan.from_beacon} → {lm.name} "
           f"{plan.distance_m:.0f}m / {total}칸 · {session.tracker.index + 1}번에서 시작")
-    return [out("start", "navigating", utterance=f"{lm.name}로 안내합니다.",
+    # 출발 안내(표 1번)에 **시작 칸의 안내를 이어붙인다.**
+    #
+    # 첫 비콘이 소유한 사건은 한 칸 앞이 없어서 자기 자신에 남는다(전수 검사에서
+    # 39건). 그것을 안 실으면 출발하자마자 해야 할 일 — 대개 바로 앞의 횡단이나
+    # 회전 — 을 아무도 말해주지 않는다.
+    opening = [f"{lm.name}로 안내합니다. 손이 닿는 벽을 짚고 걸어주세요."]
+    opening += _cues_for_step(session, session.tracker.index + 1)
+    return [out("start", "navigating", utterance=" ".join(opening),
                 haptic="guide",
                 screen=screen_of(lm.name, None, session.tracker.index + 1, total))]
 

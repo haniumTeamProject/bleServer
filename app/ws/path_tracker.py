@@ -545,6 +545,17 @@ class PathTracker:
             self._disarm("교차가 되돌아감 — 취소")
             return None
 
+        # 후퇴로 무장했는데 그 사이 **다음 비콘이 오르기 시작했다면** 되돌아가는
+        # 것이 아니라 골짜기를 지나던 중이다. evaluate 에서 막는 것과 같은 이유인데,
+        # 무장은 그 전에 이미 걸렸을 수 있으므로 여기서 한 번 더 본다.
+        if not forward:
+            ahead = self._audible_idx(+1)
+            if ahead is not None:
+                t_ahead = self._trend(self.path[ahead])
+                if t_ahead is not None and t_ahead > self.threshold:
+                    self._disarm("다음 비콘이 오르는 중 — 후퇴 취소")
+                    return None
+
         if now - self.armed_at < self.confirm_delay_ms:
             waited = (now - self.armed_at) / 1000
             self.last_verdict = (f"추세 판정됨 — 확인 대기 {waited:.1f}"
@@ -699,6 +710,21 @@ class PathTracker:
             return None
 
         # 후퇴
+        #
+        # ── 다음이 오르는 중이면 후퇴가 아니다 ────────────────────
+        #
+        # 코너를 돌아 다음 비콘 쪽으로 향하면 **현재 비콘은 이미 등졌는데 다음
+        # 비콘은 아직 안 올라온** 골짜기가 생긴다. 그 몇 초 동안은 이전 비콘이
+        # 셋 중 제일 세다. 이것만 보면 "뒤로 갔다"로 읽힌다.
+        #
+        # 실측 412 경로에서 4번(B24) 도달 3.4초 뒤에 3번(B11)으로 되돌려
+        # "경로를 벗어났습니다"가 나갔다. 사용자는 정상적으로 걷고 있었다.
+        #
+        # 다음 비콘이 오르고 있다는 것은 그쪽으로 가고 있다는 뜻이므로, 이전
+        # 비콘이 잠깐 세더라도 후퇴로 보지 않는다. 정말 되돌아가는 중이라면
+        # 다음 비콘은 멀어지므로 이 조건이 후퇴를 막지 않는다.
+        next_rising = trend_next is not None and trend_next > self.threshold
+
         trend_ok_back = (
             trend_prev is not None and trend_prev > self.threshold
             and (trend_next is None or trend_prev > trend_next)
@@ -706,6 +732,7 @@ class PathTracker:
 
         if (
             trend_ok_back
+            and not next_rising
             and prev_latest is not None
             and cur_latest is not None
             and (prev_latest > cur_latest if self.min_gap <= 0 else
