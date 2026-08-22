@@ -216,6 +216,9 @@
     <div class="controls-row" id="measureChartControls" style="display:none;">
       <button class="btn-plain" id="measureImageBtn">그래프 이미지 저장</button>
       <button class="btn-plain" id="csvDownloadBtn">CSV 다운로드</button>
+      <label style="margin-left:8px;">
+        <input type="checkbox" id="autoSaveInput" checked> 측정 끝나면 자동 저장
+      </label>
     </div>
   </div>
 
@@ -701,6 +704,7 @@
   function handleMeasureControl(msg) {
     if (msg.event === 'start') {
       measureSessionId = msg.sessionId || '';
+      measureOrigin = msg.origin || '';
       beginMeasurement(msg.label || '', 'phone');
       return;
     }
@@ -1574,6 +1578,9 @@
   let measureTimer = null;
   let measureChart = null;
   let measureLabel = '';      // 안드로이드에서 보낸 측정 이름 (없으면 빈 문자열)
+  let measureOrigin = '';     // 출발 비콘 — 저장 파일 이름에 쓴다
+  // 측정이 끝나면 CSV·그래프를 자동 저장할지. 화면의 체크상자로 끌 수 있다.
+  let AUTO_SAVE_MEASURE = true;
   let measureSessionId = '';  // 폰이 발급한 세션 ID — 다른 세션의 end를 잘못 받아 끝나지 않게 대조용
 
   const measureHost = document.getElementById('measureChartHost');
@@ -1617,6 +1624,18 @@
       `${measureTitle(origin)} 측정 종료 — ${durationSec}초, ${measurementLog.length}개 샘플`;
     renderStepStatus();
     renderMeasureSummary();
+
+    // 끝나면 CSV·그래프를 자동으로 내려받는다.
+    //
+    // 걷고 돌아와서 버튼을 누르는 사이에 다음 측정이 시작되면 앞의 것이 그대로
+    // 날아간다. 실측은 한 번 나가는 데 시간이 드는 일이라 놓치면 다시 걸어야 한다.
+    //
+    // 그래프는 renderMeasureSummary() 가 그린 뒤라야 캔버스에 내용이 있으므로
+    // 한 프레임 뒤에 저장한다.
+    if (AUTO_SAVE_MEASURE && measurementLog.length) {
+      saveMeasureCsv();
+      requestAnimationFrame(() => requestAnimationFrame(saveMeasureImage));
+    }
   }
 
   function measureTitle(origin) {
@@ -1774,7 +1793,21 @@
     fitWidth(measureChart, measureHost);
   }
 
-  document.getElementById('measureImageBtn').onclick = () => {
+  // 저장 파일 이름 — "출발_목적지_시각".
+  //
+  // 실측을 여러 번 돌리면 파일이 금방 쌓이는데, 이 순서면 폴더를 이름으로 정렬하는
+  // 것만으로 같은 구간끼리 모이고 그 안에서 시간순이 된다. 서버가 남기는
+  // measurements/ 파일과도 같은 규칙이라 나중에 짝을 맞추기 쉽다.
+  function measureStem() {
+    const safe = (v) => String(v || '').replace(/[^0-9A-Za-z가-힣()_-]/g, '').slice(0, 24);
+    const d = new Date(measureStartTime);
+    const p2 = (n) => String(n).padStart(2, '0');
+    const stamp = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}`
+      + `-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
+    return `${safe(measureOrigin) || '수동'}_${safe(measureLabel) || '측정'}_${stamp}`;
+  }
+
+  function saveMeasureImage() {
     if (!measureChart) return;
     // uPlot 캔버스는 배경이 투명이라, 흰 배경을 깐 임시 캔버스에 옮겨 그린 뒤 저장
     const src = measureChart.ctx.canvas;
@@ -1788,12 +1821,14 @@
 
     const a = document.createElement('a');
     a.href = tmp.toDataURL('image/png');
-    a.download = `rssi_측정_그래프_${new Date(measureStartTime).toISOString().replace(/[:.]/g, '-')}.png`;
+    a.download = `${measureStem()}.png`;
     a.click();
-  };
+  }
+
+  document.getElementById('measureImageBtn').onclick = saveMeasureImage;
 
   // 지도 도구에도 downloadBtn(.json 저장)이 있어서, 합쳤을 때 겹치지 않도록 이름을 구분함
-  document.getElementById('csvDownloadBtn').onclick = () => {
+  function saveMeasureCsv() {
     let csv = 'timestamp_iso,elapsed_ms,beacon,raw_rssi,filtered_rssi\n';
     measurementLog.forEach(row => {
       csv += `${new Date(row.t).toISOString()},${row.t - measureStartTime},"${row.key}",${row.raw},${row.filtered}\n`;
@@ -1802,10 +1837,16 @@
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `rssi_측정_${new Date(measureStartTime).toISOString().replace(/[:.]/g, '-')}.csv`;
+    a.download = `${measureStem()}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  };
+  }
+
+  document.getElementById('csvDownloadBtn').onclick = saveMeasureCsv;
+
+  document.getElementById('autoSaveInput')?.addEventListener('change', (e) => {
+    AUTO_SAVE_MEASURE = e.target.checked;
+  });
 
   // 초기 표시는 반드시 스크립트 맨 끝에서 한다.
   // renderStepStatus()가 pathRegistered·measuring 같은 let 변수를 읽는데,

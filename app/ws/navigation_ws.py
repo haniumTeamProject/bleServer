@@ -645,8 +645,9 @@ def _start_route(session: NavSession, lm: landmark_matcher.Landmark) -> list[dic
     session.stop_recording("새 목적지")
     session.measuring = True
     session.mirror_events.append(
-        monitor_mirror.measure_control("start", session.id, lm.name))
-    session.recorder = nav_recorder.start(session.id, lm.name, {
+        monitor_mirror.measure_control("start", session.id, lm.name,
+                                       origin=plan.from_beacon))
+    session.recorder = nav_recorder.start(session.id, plan.from_beacon, lm.name, {
         "목적지": lm.name,
         "출발비콘": plan.from_beacon,
         "거리m": round(plan.distance_m, 1),

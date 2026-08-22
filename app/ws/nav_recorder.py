@@ -40,6 +40,12 @@ ENABLED = os.environ.get("NAV_RECORD", "1") != "0"
 _DIR = Path(__file__).resolve().parents[2] / "measurements"
 
 
+def _safe(name: str) -> str:
+    """파일 이름에 쓸 수 있게 다듬는다. 한글은 그대로 둔다 — 읽을 사람이 봐야 한다."""
+    out = "".join(c for c in str(name or "") if c.isalnum() or c in "-_()")
+    return out[:24] or "?"
+
+
 def _iso(ms: float) -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(ms / 1000)) + f".{int(ms % 1000):03d}Z"
 
@@ -47,11 +53,13 @@ def _iso(ms: float) -> str:
 class NavRecorder:
     """안내 한 번 = 파일 한 쌍. 목적지가 정해질 때 열고 도착·취소·끊김에 닫는다."""
 
-    def __init__(self, session_id: str, label: str) -> None:
+    def __init__(self, session_id: str, origin: str, destination: str) -> None:
         self.started_ms = time.time() * 1000
-        stamp = time.strftime("%Y%m%dT%H%M%S", time.localtime())
-        safe = "".join(c for c in label if c.isalnum() or c in "-_")[:20] or "walk"
-        self.stem = f"nav_{safe}_{stamp}_{session_id}"
+        # 이름을 "출발_목적지_시각" 으로 둔다. 실측을 여러 번 돌리면 파일이 금방
+        # 쌓이는데, 이 순서면 폴더를 이름으로 정렬하는 것만으로 같은 구간끼리
+        # 모이고 그 안에서 시간순이 된다.
+        stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime())
+        self.stem = f"{_safe(origin)}_{_safe(destination)}_{stamp}"
         self.rows = 0
         self.meta: dict = {}
         self.transitions: list[dict] = []
@@ -113,9 +121,9 @@ class NavRecorder:
               f"전환 {len(self.transitions)}회 ({reason})")
 
 
-def start(session_id: str, label: str, meta: dict) -> NavRecorder | None:
+def start(session_id: str, origin: str, destination: str, meta: dict) -> NavRecorder | None:
     if not ENABLED:
         return None
-    rec = NavRecorder(session_id, label)
+    rec = NavRecorder(session_id, origin, destination)
     rec.meta.update(meta)
     return rec

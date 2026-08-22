@@ -128,7 +128,8 @@ async def publish(payload: dict | None) -> None:
 #
 # 이 둘은 RSSI 와 달리 **사건**이라 모아 보낼 수 없다. 그때그때 뿌린다.
 # ---------------------------------------------------------------------------
-def measure_control(event: str, session_id: str, label: str = "") -> dict:
+def measure_control(event: str, session_id: str, label: str = "",
+                    origin: str = "") -> dict:
     """`/monitor` 의 "측정 시작/종료" 버튼과 **같은 메시지**를 만든다.
 
     목적지가 정해지는 순간이 곧 구간의 시작이고 도착이 끝인데, 폰을 들고 걷는
@@ -139,6 +140,8 @@ def measure_control(event: str, session_id: str, label: str = "") -> dict:
         "event": event,              # start | end
         "sessionId": session_id,
         "label": label,
+        # 출발 비콘. `/monitor` 가 저장 파일 이름을 "출발_목적지_시각" 으로 짓는 데 쓴다.
+        "origin": origin,
         "device": "phone",
         "timestamp": int(time.time() * 1000),
     }
