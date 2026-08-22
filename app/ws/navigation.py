@@ -22,7 +22,10 @@
 
 비콘의 major(=100+층)로 층을 알아낼 수도 있지만, **목적지 랜드마크가 이미 자기
 층을 알고 있다.** 그쪽이 확실하다 — 신호를 해석할 필요가 없다.
-(층을 넘나드는 안내는 아직 다루지 않는다. §층간이동 미구현)
+
+목적지가 다른 층이면 이 모듈이 하는 일은 달라지지 않는다. **한 구간이 곧 한 층**
+이고, 층을 넘는 것은 `app/nav/legs.py` 가 구간을 쪼개서 이 함수를 두 번 부르는
+방식으로 처리한다. 그래서 여기에는 층 이동을 아는 코드가 없다.
 """
 
 from __future__ import annotations
@@ -70,16 +73,39 @@ class RoutePlan:
         return f"{destination_name}로 안내합니다."
 
 
-def strongest_beacon_key(filters: dict) -> str | None:
+def key_major(key: str) -> int | None:
+    """추적 키(`"104-7"`)에서 major 만. 못 읽으면 None."""
+    head, sep, _ = key.partition("-")
+    if not sep:
+        return None
+    try:
+        return int(head)
+    except ValueError:
+        return None
+
+
+def strongest_beacon_key(filters: dict, major: int | None = None) -> str | None:
     """지금 가장 세게 잡히는 비콘 키.
 
     `RssiFilterPipeline.x` 가 칼만 필터의 현재 추정값이다. 원본 RSSI 가 아니라
     이걸 쓰는 이유는, 원본은 한 번씩 크게 튀어서 그 순간에 출발점이 엉뚱한 곳으로
     잡히기 때문이다. `initialized` 가 False 면 아직 표본이 없다는 뜻이라 건너뛴다.
+
+    ── major 를 주면 그 층 것만 본다 ──────────────────────────────
+
+    필터는 **신호가 끊겨도 값을 잃지 않는다.** 마지막 추정값을 그대로 들고 있다.
+    한 층에서만 쓸 때는 그게 오히려 안정적인데, 층을 옮기고 나면 문제가 된다 —
+    방금 떠나온 층의 비콘이 여전히 -50dB 로 남아 있어서 새 층 비콘보다 세다.
+    그대로 고르면 "지금 잡히는 비콘이 이 층에 등록되어 있지 않습니다"로 끊긴다.
+
+    minor 만으로 거를 수도 없다. minor 는 층 안에서만 유일해서 1층 7번과 4층
+    7번이 둘 다 `minor=7` 이다. major 가 층을 담는 유일한 값이다.
     """
     best, best_v = None, float("-inf")
     for key, pipeline in filters.items():
         if not getattr(pipeline, "initialized", False):
+            continue
+        if major is not None and key_major(key) != major:
             continue
         v = float(pipeline.x)
         if v > best_v:
@@ -164,9 +190,66 @@ def _match_key(beacon: BeaconInfo, known_keys: list[str], beacon_ids: dict) -> s
     return None
 
 
+def resolve_origin(installed: list[BeaconInfo], filters: dict, beacon_ids: dict,
+                   from_beacon_id: str | None = None,
+                   major: int | None = None) -> BeaconInfo:
+    """지금 서 있는 자리에 해당하는 **설치 비콘 하나**를 고른다.
+
+    경로를 만들기 전에도, 어느 연결자가 가까운지 재기 전에도 이 값이 필요해서
+    따로 뺐다. 두 곳에서 각자 고르면 "경로의 출발점"과 "연결자를 재는 기준점"이
+    서로 다른 비콘이 될 수 있고, 그러면 엉뚱한 계단을 고르고도 이유를 알 수 없다.
+    """
+    if from_beacon_id:
+        origin = next((b for b in installed if b.id == from_beacon_id), None)
+        if origin is None:
+            raise MapDataError(f"지정한 출발 비콘이 이 층에 없습니다: {from_beacon_id}")
+        return origin
+
+    start_key = strongest_beacon_key(filters, major)
+    if start_key is None:
+        raise MapDataError(
+            "지금 잡히는 비콘이 없어 출발점을 알 수 없습니다.\n"
+            "폰이 비콘을 스캔하고 있는지 확인해 주세요."
+        )
+    origin = next(
+        (b for b in installed if _match_key(b, [start_key], beacon_ids) == start_key),
+        None)
+    if origin is None:
+        seen = beacon_ids.get(start_key) or {}
+        raise MapDataError(
+            f"지금 잡히는 비콘이 이 층에 등록되어 있지 않습니다 — "
+            f"{_ble_name(start_key)} (minor={seen.get('minor')}, MAC={_mac(start_key)})\n"
+            "관리자웹에서 그 비콘의 minor 또는 MAC 이 맞는지 확인해 주세요.\n"
+            "(표시 이름은 매칭에 쓰지 않습니다 — 폰이 올리는 광고 이름과 다른 값입니다)"
+        )
+    return origin
+
+
+def origin_point(floor_id: str, filters: dict, beacon_ids: dict,
+                 major: int | None = None) -> tuple[float, float] | None:
+    """지금 서 있는 자리의 도면 좌표. 모르면 None.
+
+    **어느 연결자가 가까운지 재는 데만 쓴다.** 못 구해도 안내를 막지 않는다 —
+    좌표를 몰라도 층 이동은 되고(멀리 도는 것뿐), 정말 출발점이 없는 상황이라면
+    바로 뒤 `plan_route` 가 제대로 된 이유를 담아 끊어준다. 여기서 먼저 던지면
+    "연결자를 못 골랐다"는 엉뚱한 메시지가 나간다.
+    """
+    db = SessionLocal()
+    try:
+        installed = DbMapSource(db).beacons(floor_id)
+        origin = resolve_origin(installed, filters, beacon_ids, major=major)
+        return (float(origin.x), float(origin.y))
+    except Exception:
+        return None
+    finally:
+        db.close()
+
+
 def plan_route(landmark_id: str, known_keys: list[str], filters: dict,
                from_beacon_id: str | None = None,
-               beacon_ids: dict | None = None) -> RoutePlan:
+               beacon_ids: dict | None = None,
+               floor_id: str | None = None,
+               major: int | None = None) -> RoutePlan:
     """목적지까지의 경로를 만든다. 못 만들면 MapDataError.
 
     known_keys 는 지금까지 한 번이라도 잡힌 비콘 키 목록이다. 경로에 나온 비콘을
@@ -175,39 +258,22 @@ def plan_route(landmark_id: str, known_keys: list[str], filters: dict,
 
     `from_beacon_id` 를 주면 그 비콘에서 출발한 것으로 친다. 폰 없이 `/monitor`
     에서 경로만 확인할 때 쓴다.
+
+    `floor_id` 를 주면 그 층에서 찾는다. **목적지가 연결자(계단·엘리베이터)일 때
+    반드시 필요하다** — 연결자는 여러 층에 걸쳐 있어서 자기 층을 하나로 말할 수
+    없기 때문이다. 안 주면 랜드마크 테이블에서 층을 읽는다.
     """
     ids_map = beacon_ids or {}
     db = SessionLocal()
     try:
-        row = db.get(LandmarkRow, landmark_id)
-        if row is None:
-            raise MapDataError(f"목적지를 DB 에서 찾을 수 없습니다: {landmark_id}")
-        floor_id = row.floor_id
+        if floor_id is None:
+            row = db.get(LandmarkRow, landmark_id)
+            if row is None:
+                raise MapDataError(f"목적지를 DB 에서 찾을 수 없습니다: {landmark_id}")
+            floor_id = row.floor_id
         source = DbMapSource(db)
         installed = source.beacons(floor_id)
-
-        if from_beacon_id:
-            origin = next((b for b in installed if b.id == from_beacon_id), None)
-            if origin is None:
-                raise MapDataError(f"지정한 출발 비콘이 이 층에 없습니다: {from_beacon_id}")
-        else:
-            start_key = strongest_beacon_key(filters)
-            if start_key is None:
-                raise MapDataError(
-                    "지금 잡히는 비콘이 없어 출발점을 알 수 없습니다.\n"
-                    "폰이 비콘을 스캔하고 있는지 확인해 주세요."
-                )
-            origin = next(
-                (b for b in installed if _match_key(b, [start_key], ids_map) == start_key),
-                None)
-            if origin is None:
-                seen = ids_map.get(start_key) or {}
-                raise MapDataError(
-                    f"지금 잡히는 비콘이 이 층에 등록되어 있지 않습니다 — "
-                    f"{_ble_name(start_key)} (minor={seen.get('minor')}, MAC={_mac(start_key)})\n"
-                    "관리자웹에서 그 비콘의 minor 또는 MAC 이 맞는지 확인해 주세요.\n"
-                    "(표시 이름은 매칭에 쓰지 않습니다 — 폰이 올리는 광고 이름과 다른 값입니다)"
-                )
+        origin = resolve_origin(installed, filters, ids_map, from_beacon_id, major)
 
         route = build_route(source, floor_id,
                             from_beacon_id=origin.id, to_landmark_id=landmark_id)

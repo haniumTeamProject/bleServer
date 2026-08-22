@@ -37,9 +37,11 @@ import asyncio
 import json
 import time
 import uuid
+from dataclasses import dataclass
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from app.nav import legs as legs_mod
 from app.nav.map_source import MapDataError
 from app.ws import landmark_matcher, llm_matcher, monitor_mirror, nav_recorder, navigation
 from app.ws.path_tracker import PathTracker
@@ -53,6 +55,13 @@ PENDING_TTL_MS = 120_000
 
 # 목적지 목록을 잠깐 들고 있는다. 관리자가 목적지를 추가하면 이 시간 안에 반영된다.
 LANDMARK_TTL_MS = 10_000
+
+# 기다리던 층이 아닌 곳에서 이만큼 머물러야 "여기 내렸다"고 본다.
+#
+# 계단통을 오르는 동안 지나가는 층의 비콘이 잠깐씩 잡힌다. 그걸 곧바로 도착으로
+# 읽으면 2층·3층에서 안내를 새로 만들며 계속 말한다. 목표 층은 이 대기가 없다 —
+# 거기서 멈출 것이 확실하므로 기다릴 이유가 없다.
+WRONG_FLOOR_DWELL_MS = 5_000
 
 
 class NavSession:
@@ -80,6 +89,21 @@ class NavSession:
         self.plan: navigation.RoutePlan | None = None
         # 칸 번호별로 말할 문장. cues[i] = i+1 번째 칸.
         self.cues: list[list[str]] = []
+
+        # -- 층 이동 -------------------------------------------------------
+        #
+        # 목적지가 다른 층이면 안내를 한 층짜리 구간 여러 개로 쪼갠다(app/nav/legs.py).
+        # **이 셋은 서버 안에만 있다.** 앱으로 나가지 않고, 오히려 나가지 않게
+        # 하려고 둔다 — 추적기는 경유지에 닿아도 최종 목적지에 닿은 것과 똑같이
+        # `isLast` 를 올리므로, 둘을 가릴 근거가 세션에 없으면 경유지에서
+        # `arrived` 가 새어 나간다.
+        self.legs: list[legs_mod.Leg] = []
+        self.leg_index = 0
+        # 경유지에 닿아 층이 바뀌기를 기다리는 중인가. 이 동안에는 판정을 멈춘다.
+        self.awaiting_floor: str | None = None
+        # 지금 층으로 바뀐 시각. 계단통에서 지나가는 층 신호가 잠깐 잡히는 것과
+        # 실제로 그 층에 내린 것을 가리는 데 쓴다.
+        self.floor_since: int = 0
 
         # 로그 조절용 — 비콘은 초당 열 번씩 오므로 요약만 남긴다
         self.beacon_count = 0
@@ -128,7 +152,24 @@ class NavSession:
         self.destination = None
         self.plan = None
         self.cues = []
+        self.legs = []
+        self.leg_index = 0
+        self.awaiting_floor = None
         self.tracker.set_path([])
+
+    # -- 층 이동 ----------------------------------------------------------
+    @property
+    def leg(self) -> "legs_mod.Leg | None":
+        """지금 안내 중인 구간."""
+        if 0 <= self.leg_index < len(self.legs):
+            return self.legs[self.leg_index]
+        return None
+
+    @property
+    def on_final_leg(self) -> bool:
+        """지금 구간이 마지막인가. 구간을 안 쓰면(같은 층) 항상 참."""
+        leg = self.leg
+        return leg is None or leg.is_final
 
 
 def _now_ms() -> int:
@@ -262,8 +303,8 @@ def _items(landmarks) -> list[dict]:
 # ---------------------------------------------------------------------------
 # 층·목적지
 # ---------------------------------------------------------------------------
-def building_from_mac(mac: str) -> tuple[str | None, str | None]:
-    """MAC 하나로 (건물 id, 층 id)를 찾는다. 못 찾으면 (None, None).
+def building_from_mac(mac: str) -> str | None:
+    """MAC 하나로 **건물**을 찾는다. 못 찾으면 None.
 
     ── MAC 은 여기서만 쓴다 ──────────────────────────────────────
 
@@ -277,6 +318,13 @@ def building_from_mac(mac: str) -> tuple[str | None, str | None]:
     쓴다. 한 번 정해지면 그 뒤로는 안 본다 — 같은 건물 안에서 major/minor 는
     유일하므로 모호할 일이 없다.
 
+    ── 층은 안 돌려준다 ──────────────────────────────────────────
+
+    예전에는 `(건물, 층)` 을 같이 돌려주고 첫 층만 이 값으로 정했다. 그러면
+    **층을 정하는 길이 두 개**가 된다 — 첫 층은 MAC, 그 뒤로는 major. 실제로
+    그 탓에 `session.major` 가 출발 층에서 끝까지 비어 있었다(§`_locate`).
+    층은 언제나 major 하나로 정한다.
+
     (건물까지 신호에 담으려면 iBeacon UUID 를 건물마다 다르게 구우면 된다.
      그러면 MAC 이 아예 필요 없어진다. 지금은 UUID 가 전 비콘 공통이라 MAC 을 쓴다)
     """
@@ -289,16 +337,16 @@ def building_from_mac(mac: str) -> tuple[str | None, str | None]:
 
         db = SessionLocal()
         try:
-            row = (db.query(Beacon.floor_id, Floor.building_id)
-                   .join(Floor, Floor.id == Beacon.floor_id)
+            row = (db.query(Floor.building_id)
+                   .join(Beacon, Beacon.floor_id == Floor.id)
                    .filter(sa.func.upper(Beacon.mac) == str(mac).upper())
                    .first())
-            return (row[1], row[0]) if row else (None, None)
+            return row[0] if row else None
         finally:
             db.close()
     except Exception as e:
         print(f"[nav] MAC 조회 실패: {e}")
-        return (None, None)
+        return None
 
 
 def floor_in_building(building_id: str, major: int) -> str | None:
@@ -317,6 +365,55 @@ def floor_in_building(building_id: str, major: int) -> str | None:
             db.close()
     except Exception:
         return None
+
+
+def _load_other_floor_landmarks(session: NavSession) -> list[landmark_matcher.Landmark]:
+    """**다른 층**의 목적지들. 이 층에서 못 찾았을 때만 본다.
+
+    ── 왜 처음부터 건물 전체를 보지 않나 ──────────────────────────
+
+    화장실은 층마다 있다. 건물 전체를 후보로 두면 "화장실"이라고 말할 때마다
+    다섯 개가 나와서 "몇 층 화장실이요?"를 되묻게 된다. 사용자가 원한 것은
+    거의 언제나 **지금 층의 화장실**이다.
+
+    그래서 순서를 둔다 — 이 층에서 먼저 찾고, 없을 때만 다른 층을 본다.
+    "407호"는 이 층에 없으니 자연히 다른 층에서 찾히고, "화장실"은 이 층에서
+    끝나서 다른 층 것이 끼어들지 않는다.
+
+    ── 연결자는 뺀다 ──────────────────────────────────────────────
+
+    계단·엘리베이터는 층마다 같은 이름으로 있다. 다른 층 것까지 후보에 넣으면
+    "계단1"이 여러 개가 되는데, 다른 층 계단을 목적지로 삼는 것은 뜻이 없다 —
+    거기 가려면 어차피 이 층 계단을 타야 한다.
+    """
+    if session.building_id is None or session.floor_id is None:
+        return []
+    try:
+        from app.database import SessionLocal
+        from app.floor.models import Floor
+        from app.landmark.models import Landmark as LandmarkRow
+
+        db = SessionLocal()
+        try:
+            floor_ids = [
+                r[0] for r in db.query(Floor.id)
+                .filter(Floor.building_id == session.building_id,
+                        Floor.id != session.floor_id).all()
+            ]
+            if not floor_ids:
+                return []
+            raw = [
+                {"id": lm.id, "name": lm.name, "x": lm.x, "y": lm.y}
+                for lm in db.query(LandmarkRow)
+                .filter(LandmarkRow.floor_id.in_(floor_ids)).all()
+                if lm.name
+            ]
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[nav] 다른 층 목적지 조회 실패: {e}")
+        return []
+    return landmark_matcher.load_landmarks(raw)
 
 
 def _load_landmarks(session: NavSession) -> list[landmark_matcher.Landmark]:
@@ -393,6 +490,12 @@ def on_beacons(session: NavSession, data: dict) -> list[dict]:
     # "아직 위치를 확인하지 못했습니다"만 받고 끝났고, 그 뒤로 다시 물어보지 않아
     # 목록이 영영 비어 있었다. 언제 다시 물을지를 앱이 판단하게 두면 이런 구멍이
     # 생기므로, 준비되는 쪽이 알려준다.
+    # 층 이동이 끝났나. **목적지 목록보다 먼저 본다** — 층이 바뀐 그 순간에
+    # `destination` 은 아직 살아 있으므로 아래 목록 안내와 부딪히지 않지만,
+    # 순서를 명확히 해두는 편이 읽기 쉽다.
+    if located and session.awaiting_floor is not None:
+        out_msgs.extend(_maybe_resume(session))
+
     if located and session.destination is None:
         landmarks = _load_landmarks(session)
         if landmarks:
@@ -413,10 +516,13 @@ def on_beacons(session: NavSession, data: dict) -> list[dict]:
         if session.recorder is not None:
             session.recorder.transition(transition, session.tracker.last_numbers,
                                         session.tracker.last_verdict)
-        out_msgs.append(_transition_message(session, transition))
-        # 판정 시점을 `/monitor` 그래프에 세로선으로 남긴다.
+        # 판정 시점을 `/monitor` 그래프에 세로선으로 남긴다. **메시지를 만들기
+        # 전에** 남긴다 — 경유지면 `_transition_message` 안에서 기록이 닫히므로,
+        # 뒤에 두면 그 구간의 마지막 전환이 파일에 안 들어간다.
         session.mirror_events.append(monitor_mirror.transition_msg(session, transition))
-        if transition.get("isLast"):
+        final = session.on_final_leg
+        out_msgs.extend(_transition_message(session, transition))
+        if transition.get("isLast") and final:
             session.stop_recording("도착")
     _log_track(session)
 
@@ -425,39 +531,61 @@ def on_beacons(session: NavSession, data: dict) -> list[dict]:
 
 
 def _locate(session: NavSession, major, mac) -> bool:
-    """지금 어느 건물 몇 층인지 정한다.
+    """지금 어느 건물 몇 층인지 정한다. **층이 실제로 바뀌었을 때만 True.**
 
         건물   MAC 으로 한 번만 (major 가 건물을 안 담으므로)
-        층     그 건물 안에서 major 로 (층이 바뀌면 따라간다)
+        층     그 건물 안에서 major 로 — 첫 층도 포함해서 언제나
 
     건물이 정해지기 전에는 층도 정하지 않는다. major 만으로 층을 고르면 다른
     건물의 같은 층을 집을 수 있고, 그러면 목적지 목록과 경로가 통째로 남의 건물
     것이 된다 — 사용자가 알아챌 방법이 없다.
+
+    ── 층을 정하는 길은 하나여야 한다 ────────────────────────────
+
+    예전에는 **첫 층만 MAC 으로** 정하고 그 뒤로는 major 로 따라갔다. 길이 둘이라
+    `session.major` 가 첫 분기에서 안 채워졌고, 두 번째 분기는 층이 같으면 저장
+    전에 빠져나가서 **출발 층에 있는 내내 `session.major` 가 None 이었다.**
+
+        첫 비콘 뒤 :  floor_id = f-1   major = None
+        같은 층 계속:  floor_id = f-1   major = None
+
+    출발점을 고를 때 층을 거르는 데 이 값을 쓰므로(`strongest_beacon_key`),
+    None 이면 거르지 않고 지나간다. 계단 근처에서 위층 신호가 새어 들어오면
+    그것이 출발 비콘으로 뽑힌다.
+
+    지금은 MAC 과 major 가 같은 메시지에 함께 오므로(`NavClient.sendBeacon` —
+    major/minor 는 필수, mac 만 nullable) 한 번에 둘 다 정해진다.
     """
     if session.building_id is None:
         if not mac:
             return False
-        building_id, floor_id = building_from_mac(mac)
+        building_id = building_from_mac(mac)
         if building_id is None:
             return False
         session.building_id = building_id
-        session.floor_id = floor_id
-        print(f"[nav] {session.id} 위치 확정 — 건물 {building_id} / 층 {floor_id} (MAC {mac})")
-        return True
+        print(f"[nav] {session.id} 건물 확정 — {building_id} (MAC {mac})")
 
     if not isinstance(major, int) or major == session.major:
         return False
     floor_id = floor_in_building(session.building_id, major)
-    if floor_id is None or floor_id == session.floor_id:
+    if floor_id is None:
         return False
-    print(f"[nav] {session.id} 층 바뀜 {session.floor_id} → {floor_id} (major {major})")
-    session.floor_id = floor_id
+
+    # **층이 그대로여도 major 는 저장한다.** 아래에서 빠져나가기 전에 한다 —
+    # 이 값이 비어 있으면 출발점을 고를 때 층을 못 거른다.
     session.major = major
+    if floor_id == session.floor_id:
+        return False
+
+    where = session.floor_id or "?"
+    print(f"[nav] {session.id} 층 {where} → {floor_id} (major {major})")
+    session.floor_id = floor_id
+    session.floor_since = _now_ms()
     session.landmarks = []      # 목적지 목록을 새 층 것으로 다시 읽는다
     return True
 
 
-def _transition_message(session: NavSession, t: dict) -> dict:
+def _transition_message(session: NavSession, t: dict) -> list[dict]:
     """추적기 판정을 앱이 읽을 문장으로 바꾼다.
 
     **문구는 `app/nav/cues.py` 가 만든 것을 그대로 읽는다.** 여기서 따로 짓지 않는다.
@@ -471,28 +599,40 @@ def _transition_message(session: NavSession, t: dict) -> dict:
     forward = t.get("direction") == "forward"
 
     if not forward:
-        return out("back", "navigating", utterance="멈추세요. 경로를 벗어났습니다.",
-                   haptic="warn", screen=screen_of(None, None, step, total))
+        return [out("back", "navigating", utterance="멈추세요. 경로를 벗어났습니다.",
+                    haptic="warn", screen=screen_of(None, None, step, total))]
 
     # 이 칸에 배정된 안내. seq 는 1부터라 -1 한다.
     said = _cues_for_step(session, step)
 
     if is_last:
+        # **여기가 갈리는 지점이다.**
+        #
+        # 추적기는 경유지(계단)에 닿아도 최종 목적지에 닿은 것과 똑같이 `isLast`
+        # 를 올린다. 경로 마지막 칸이라는 사실만 알지 그 경로가 왜 거기서 끝나는지는
+        # 모르기 때문이다. 세션이 들고 있는 구간 목록만이 둘을 가릴 수 있다.
+        leg = session.leg
+        if leg is not None and not leg.is_final:
+            # 경유지 — `arrived` 를 내보내지 않는다. 층 이동 안내로 바꿔 단다.
+            # cue 로 만들어진 "계단1입니다."는 버린다. `handoff_speech()` 가
+            # 같은 말을 층 이동 지시까지 붙여서 다시 한다.
+            return _handoff(session, leg)
+
         name = session.destination.name if session.destination else "목적지"
         # 도착 안내는 cue 로도 만들어지지만(마지막 비콘 고정), 그것이 없거나
         # 다른 칸에 있을 수 있으므로 여기서 반드시 도착을 말한다.
         text = " ".join(said) if said else f"{name}입니다."
-        return out("arrive", "arrived", utterance=text,
-                   haptic="arrive", screen=screen_of(name, None, step, total))
+        return [out("arrive", "arrived", utterance=text,
+                    haptic="arrive", screen=screen_of(name, None, step, total))]
 
     if not said:
         # 이 비콘에 할 말이 없다 — 표 2번 "일반 직진"은 무음이다.
         # 화면의 진행 표시만 갱신한다.
-        return out("advance", "navigating", utterance=None,
-                   screen=screen_of(None, None, step, total))
+        return [out("advance", "navigating", utterance=None,
+                    screen=screen_of(None, None, step, total))]
 
-    return out("advance", "navigating", utterance=" ".join(said),
-               haptic="guide", screen=screen_of(None, None, step, total))
+    return [out("advance", "navigating", utterance=" ".join(said),
+                haptic="guide", screen=screen_of(None, None, step, total))]
 
 
 def _build_cues(session: NavSession, plan, destination: str) -> list[list[str]]:
@@ -560,6 +700,10 @@ def on_destination(session: NavSession, data: dict) -> list[dict]:
         # 목록에서 터치로 고른 것 — 해석을 건너뛴다.
         lm = next((x for x in landmarks if x.id == picked_id), None)
         if lm is None:
+            # 화면 목록은 이 층 것만 보여주지만, 다른 층 id 가 올 수도 있다.
+            lm = next((x for x in _load_other_floor_landmarks(session)
+                       if x.id == picked_id), None)
+        if lm is None:
             return [out("notFound", "listening", utterance="그 목적지를 찾지 못했습니다.",
                         listen_after=True)]
         session.pending = []
@@ -569,6 +713,15 @@ def on_destination(session: NavSession, data: dict) -> list[dict]:
     session.heard = text or session.heard
     pending = session.take_pending()
     result = llm_matcher.choose(text, pending) if pending else llm_matcher.resolve(text, landmarks)
+
+    # 이 층에 없으면 다른 층을 본다. **순서가 중요하다** — 자세한 이유는
+    # `_load_other_floor_landmarks` 참고("화장실"은 이 층 것이어야 한다).
+    if result.status == "notFound" and not pending:
+        others = _load_other_floor_landmarks(session)
+        if others:
+            elsewhere = llm_matcher.resolve(text, others)
+            if elsewhere.status != "notFound":
+                result = elsewhere
 
     if result.status == "resolved" and result.landmark:
         session.pending = []
@@ -586,11 +739,63 @@ def on_destination(session: NavSession, data: dict) -> list[dict]:
 
 
 def _start_route(session: NavSession, lm: landmark_matcher.Landmark) -> list[dict]:
-    """목적지가 정해졌으니 경로를 만들어 추적을 건다."""
+    """사용자가 말한 **최종** 목적지가 정해졌다.
+
+    같은 층이면 구간이 하나라 예전과 똑같이 돈다. 다른 층이면 구간을 쪼개고
+    첫 구간(가까운 연결자까지)만 건다. 나머지는 층이 바뀐 뒤에 이어서 한다.
+    """
     session.destination = lm
+    session.awaiting_floor = None
+    session.leg_index = 0
     try:
-        plan = navigation.plan_route(lm.id, list(session.filters.keys()),
-                                     session.filters, beacon_ids=session.beacon_ids)
+        session.legs = _plan_legs(session, lm)
+    except MapDataError as e:
+        session.destination = None
+        session.legs = []
+        return [out("routeFailed", "ready", utterance=str(e).splitlines()[0],
+                    listen_after=True)]
+    if len(session.legs) > 1:
+        print(f"[nav] {session.id} 층 이동 — "
+              + " → ".join(leg.dest_name for leg in session.legs))
+    return _start_leg(session)
+
+
+def _plan_legs(session: NavSession, lm: landmark_matcher.Landmark) -> list[legs_mod.Leg]:
+    """구간을 쪼갠다. 층을 모르면 쪼갤 수 없으니 한 구간으로 둔다."""
+    if session.floor_id is None:
+        return [legs_mod.Leg(floor_id="", dest_id=lm.id, dest_name=lm.name, is_final=True)]
+    from app.database import SessionLocal
+
+    xy = navigation.origin_point(session.floor_id, session.filters,
+                                 session.beacon_ids, session.major)
+    db = SessionLocal()
+    try:
+        return legs_mod.plan_legs(db, session.floor_id, lm.id, lm.name,
+                                  origin_x=xy[0] if xy else None,
+                                  origin_y=xy[1] if xy else None)
+    finally:
+        db.close()
+
+
+def _start_leg(session: NavSession) -> list[dict]:
+    """구간 하나를 건다. **층을 넘는 것을 여기서는 모른다.**
+
+    첫 구간이든 층을 옮기고 난 두 번째 구간이든 하는 일이 완전히 같다 —
+    한 층, 출발 비콘 하나, 목적지 하나. 그래서 코드가 하나뿐이다.
+    """
+    leg = session.leg
+    if leg is None:
+        session.destination = None
+        return [out("error", "ready", utterance="경로를 만들지 못했습니다. 다시 말씀해 주세요.",
+                    listen_after=True)]
+    # 이 구간에서 "목적지"라고 부를 것. 경유지면 연결자 이름이다.
+    name = leg.dest_name
+    first_leg = session.leg_index == 0
+    try:
+        plan = navigation.plan_route(leg.dest_id, list(session.filters.keys()),
+                                     session.filters, beacon_ids=session.beacon_ids,
+                                     floor_id=leg.floor_id or None,
+                                     major=session.major)
     except MapDataError as e:
         # 못 만든 이유를 그대로 읽어주고 다시 듣는다. 여기서 마이크를 안 열면
         # 사용자는 그 자리에서 막힌다.
@@ -604,12 +809,16 @@ def _start_route(session: NavSession, lm: landmark_matcher.Landmark) -> list[dic
                     listen_after=True)]
 
     session.plan = plan
-    session.cues = _build_cues(session, plan, lm.name)
+    session.cues = _build_cues(session, plan, name)
 
     # `/monitor` 가 지도에 그릴 수 있게 서버에 둔다. **추적이 걸리든 안 걸리든
     # 둔다** — 경로를 만드는 것과 추적을 거는 것은 다른 일이고, 한 칸짜리 경로도
     # 어디로 가려 했는지는 화면에서 봐야 한다.
-    monitor_mirror.set_route(plan, lm, session.heard or lm.name)
+    #
+    # 경유 구간이면 최종 목적지가 아니라 **이 구간의 목적지**를 그린다. 화면에
+    # 407호를 띄워놓고 실제로는 계단까지의 경로를 그리면 검수할 수가 없다.
+    monitor_mirror.set_route(plan, _LegTarget(leg.dest_id, name),
+                             session.heard or name)
 
     total = len(plan.keys)
     if total < 2:
@@ -619,11 +828,14 @@ def _start_route(session: NavSession, lm: landmark_matcher.Landmark) -> list[dic
         # 예전에는 "비콘 신호를 기다리는 중입니다"라고 했는데 **거짓말이었다.**
         # 신호 문제가 아니라 경로가 짧은 것이고, 그렇게 말하면 사용자는 오지 않을
         # 신호를 영원히 기다린다. listenAfter 도 없어서 다시 말할 수조차 없었다.
+        if not leg.is_final:
+            # 연결자가 바로 옆이다 — 걸을 것도 없이 곧장 층 이동으로 넘긴다.
+            return _handoff(session, leg)
         session.destination = None
         return [out("arrive", "arrived",
-                    utterance=f"{lm.name}은 바로 근처입니다.",
+                    utterance=f"{name}은 바로 근처입니다.",
                     haptic="arrive", listen_after=True,
-                    screen=screen_of(lm.name, None, 1, 1))]
+                    screen=screen_of(name, None, 1, 1))]
 
     # `/monitor` 판정 설정 창에서 고른 값을 그대로 쓴다.
     #
@@ -645,10 +857,12 @@ def _start_route(session: NavSession, lm: landmark_matcher.Landmark) -> list[dic
     session.stop_recording("새 목적지")
     session.measuring = True
     session.mirror_events.append(
-        monitor_mirror.measure_control("start", session.id, lm.name,
+        monitor_mirror.measure_control("start", session.id, name,
                                        origin=plan.from_beacon))
-    session.recorder = nav_recorder.start(session.id, plan.from_beacon, lm.name, {
-        "목적지": lm.name,
+    session.recorder = nav_recorder.start(session.id, plan.from_beacon, name, {
+        "목적지": name,
+        "최종목적지": session.destination.name if session.destination else name,
+        "구간": f"{session.leg_index + 1}/{len(session.legs)}",
         "출발비콘": plan.from_beacon,
         "거리m": round(plan.distance_m, 1),
         "경로비콘": [s.beacon_id for s in plan.route.steps],
@@ -669,18 +883,110 @@ def _start_route(session: NavSession, lm: landmark_matcher.Landmark) -> list[dic
             "backStreakNeed": session.tracker.back_streak_need,
         },
     })
-    print(f"[nav] {session.id} {plan.from_beacon} → {lm.name} "
-          f"{plan.distance_m:.0f}m / {total}칸 · {session.tracker.index + 1}번에서 시작")
+    print(f"[nav] {session.id} {plan.from_beacon} → {name} "
+          f"{plan.distance_m:.0f}m / {total}칸 · {session.tracker.index + 1}번에서 시작"
+          + (f" (구간 {session.leg_index + 1}/{len(session.legs)})"
+             if len(session.legs) > 1 else ""))
     # 출발 안내(표 1번)에 **시작 칸의 안내를 이어붙인다.**
     #
     # 첫 비콘이 소유한 사건은 한 칸 앞이 없어서 자기 자신에 남는다(전수 검사에서
     # 39건). 그것을 안 실으면 출발하자마자 해야 할 일 — 대개 바로 앞의 횡단이나
     # 회전 — 을 아무도 말해주지 않는다.
-    opening = [f"{lm.name}로 안내합니다. 손이 닿는 벽을 짚고 걸어주세요."]
+    #
+    # 두 번째 구간부터는 "손이 닿는 벽을 짚고 걸어주세요"를 다시 말하지 않는다.
+    # 이미 그러고 있는 사람에게 반복하면 새 지시로 들린다. 대신 **최종 목적지를
+    # 다시 짚어준다** — 층을 옮기는 동안 어디로 가는 중이었는지 잊기 쉽다.
+    if first_leg:
+        opening = [f"{name}로 안내합니다. 손이 닿는 벽을 짚고 걸어주세요."]
+    else:
+        opening = [f"{name}로 계속 안내합니다."]
     opening += _cues_for_step(session, session.tracker.index + 1)
+
+    # 화면에 띄우는 이름은 **최종 목적지**다. 경유지 이름을 띄우면 사용자가
+    # 목적지가 바뀐 줄 안다 — 서버 안에서 구간을 쪼갠 것은 앱이 알 바가 아니다.
+    shown = session.destination.name if session.destination else name
     return [out("start", "navigating", utterance=" ".join(opening),
                 haptic="guide",
-                screen=screen_of(lm.name, None, session.tracker.index + 1, total))]
+                screen=screen_of(shown, None, session.tracker.index + 1, total))]
+
+
+@dataclass(frozen=True)
+class _LegTarget:
+    """`monitor_mirror.set_route` 가 원하는 최소한의 모양(id·name)만 갖춘 껍데기.
+
+    경유 구간의 목적지는 연결자라 `landmark_matcher.Landmark` 가 아니다.
+    지도에 그릴 때 필요한 것은 id 와 이름 둘뿐이라 그것만 담아 넘긴다.
+    """
+
+    id: str
+    name: str
+
+
+def _handoff(session: NavSession, leg: legs_mod.Leg, opening: str = "") -> list[dict]:
+    """경유지에 닿았다. **도착이 아니라 층 이동이다.**
+
+    여기서 하는 일이 셋이다.
+
+        판정을 멈춘다      층을 옮기는 동안 신호가 끊기는데, 켜둔 채로 두면
+                          그 구간이 "경로를 벗어났습니다"로 읽힌다
+        기다릴 층을 적는다  major 가 그 층 것으로 바뀌면 이동이 끝난 줄 안다
+        말한다             `arrived` 가 아니라 `advance`. 앱은 안내 화면에 머문다
+    """
+    # `end_session()` 은 측정만 끈다(active=False). 경로는 그대로 둔다 —
+    # `/monitor` 가 1층 경로를 계속 그릴 수 있어야 층 이동 직전 상태를 볼 수 있다.
+    session.tracker.end_session()
+    session.stop_recording("층 이동")
+    session.awaiting_floor = leg.next_floor_id
+    print(f"[nav] {session.id} {leg.dest_name} 도달 — {leg.next_floor_no}층 신호를 기다린다")
+
+    text = (opening + " " + leg.handoff_speech()) if opening else leg.handoff_speech()
+    shown = session.destination.name if session.destination else leg.dest_name
+    return [out("advance", "navigating", utterance=text.strip(),
+                haptic="guide", screen=screen_of(shown, None, None, None))]
+
+
+def _maybe_resume(session: NavSession) -> list[dict]:
+    """층 이동이 끝났으면 다음 구간을 건다.
+
+    ── 무엇을 보고 "끝났다"고 하나 ────────────────────────────────
+
+    **새 층의 비콘이 잡힌 것** 하나만 본다. 시간을 재지 않는다 — 계단을 오르는
+    속도는 사람마다 다르고, 엘리베이터는 몇 층을 더 돌기도 한다. 목표 층 신호가
+    들어온 것보다 확실한 증거는 없다.
+
+    `_locate()` 가 major 로 층을 이미 따라가고 있어서(펌웨어에 `major = 100 + 층`
+    이 새겨져 있다) 여기서는 그 결과가 기다리던 층인지만 확인하면 된다.
+
+    ── 다른 층에 내렸으면 ────────────────────────────────────────
+
+    엘리베이터에서 층을 잘못 눌렀거나 계단을 지나쳤을 수 있다. 그때는 다시
+    구간을 쪼갠다 — 지금 층에서 최종 목적지까지 새로 계획하는 것이라, 3층에
+    내렸으면 3층에서 다시 4층으로 가는 안내가 나온다.
+    """
+    want = session.awaiting_floor
+    if want is None or session.floor_id is None:
+        return []
+
+    if session.floor_id != want:
+        # 지나가는 중일 수 있다. 잠깐 머물러 보고 판단한다.
+        if _now_ms() - session.floor_since < WRONG_FLOOR_DWELL_MS:
+            return []
+        # 엉뚱한 층이다. 최종 목적지는 그대로 두고 여기서 다시 계획한다.
+        dest = session.destination
+        if dest is None:
+            session.awaiting_floor = None
+            return []
+        print(f"[nav] {session.id} 기다리던 층이 아님({want} 아닌 {session.floor_id}) — 다시 계획")
+        session.awaiting_floor = None
+        return _start_route(session, dest)
+
+    session.awaiting_floor = None
+    session.leg_index += 1
+    leg = session.leg
+    if leg is None:
+        return []
+    print(f"[nav] {session.id} 층 이동 완료 — {leg.dest_name} 구간 시작")
+    return _start_leg(session)
 
 
 def _seed_index(session: NavSession, keys: list[str]) -> None:
