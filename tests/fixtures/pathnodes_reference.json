@@ -112,67 +112,80 @@
     {
      "a": "N01",
      "b": "N02",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N02",
      "b": "N03",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N03",
      "b": "N04",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N04",
      "b": "N05",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N05",
      "b": "N06",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N06",
      "b": "N07",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N07",
      "b": "N08",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N08",
      "b": "N09",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N09",
      "b": "N10",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N10",
      "b": "N01",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N01",
      "b": "N07",
-     "type": "cross"
+     "type": "cross",
+     "directed": true
     },
     {
      "a": "N03",
      "b": "N06",
-     "type": "cross"
+     "type": "cross",
+     "directed": true
     },
     {
      "a": "N10",
      "b": "N07",
-     "type": "cross"
+     "type": "cross",
+     "directed": true
     }
    ]
   },
@@ -342,112 +355,134 @@
     {
      "a": "N01",
      "b": "N02",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N02",
      "b": "N03",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N03",
      "b": "N04",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N04",
      "b": "N05",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N05",
      "b": "N06",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N06",
      "b": "N07",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N07",
      "b": "N08",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N08",
      "b": "N09",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N09",
      "b": "N10",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N10",
      "b": "N11",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N11",
      "b": "N12",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N12",
      "b": "N13",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N13",
      "b": "N14",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N14",
      "b": "N15",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N15",
      "b": "N16",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N16",
      "b": "N01",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N14",
      "b": "N11",
-     "type": "cross"
+     "type": "cross",
+     "directed": true
     },
     {
      "a": "N14",
      "b": "N02",
-     "type": "cross"
+     "type": "cross",
+     "directed": true
     },
     {
      "a": "N06",
      "b": "N03",
-     "type": "cross"
+     "type": "cross",
+     "directed": true
     },
     {
      "a": "N07",
      "b": "N10",
-     "type": "cross"
+     "type": "cross",
+     "directed": true
     },
     {
      "a": "N15",
      "b": "N11",
-     "type": "cross"
+     "type": "cross",
+     "directed": true
     },
     {
      "a": "N15",
      "b": "N02",
-     "type": "cross"
+     "type": "cross",
+     "directed": true
     }
    ]
   },
@@ -541,52 +576,62 @@
     {
      "a": "N01",
      "b": "N02",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N02",
      "b": "N03",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N03",
      "b": "N04",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N04",
      "b": "N05",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N05",
      "b": "N06",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N06",
      "b": "N07",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N07",
      "b": "N08",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N08",
      "b": "N01",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N03",
      "b": "N08",
-     "type": "cross"
+     "type": "cross",
+     "directed": true
     },
     {
      "a": "N03",
      "b": "N06",
-     "type": "cross"
+     "type": "cross",
+     "directed": true
     }
    ]
   },
@@ -642,22 +687,26 @@
     {
      "a": "N01",
      "b": "N02",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N02",
      "b": "N03",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N03",
      "b": "N04",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N04",
      "b": "N01",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     }
    ]
   },
@@ -751,42 +800,50 @@
     {
      "a": "N01",
      "b": "N02",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N02",
      "b": "N03",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N03",
      "b": "N04",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N04",
      "b": "N01",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N05",
      "b": "N06",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N06",
      "b": "N07",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N07",
      "b": "N08",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N08",
      "b": "N05",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     }
    ]
   },
@@ -848,22 +905,26 @@
     {
      "a": "N01",
      "b": "N02",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N02",
      "b": "N03",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N03",
      "b": "N04",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N04",
      "b": "N01",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     }
    ]
   },
@@ -900,7 +961,7 @@
     {
      "x": 155,
      "y": 75,
-     "kind": "connector"
+     "kind": "landmark"
     }
    ],
    "crossingMaxPx": null,
@@ -973,7 +1034,7 @@
      "id": "N09",
      "x": 160,
      "y": 80,
-     "type": "connector",
+     "type": "landmark",
      "concave": false,
      "pairKind": null
     },
@@ -1038,107 +1099,128 @@
     {
      "a": "N01",
      "b": "N02",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N02",
      "b": "N03",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N03",
      "b": "N04",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N04",
      "b": "N05",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N05",
      "b": "N06",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N06",
      "b": "N07",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N07",
      "b": "N08",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N08",
      "b": "N09",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N09",
      "b": "N10",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N10",
      "b": "N11",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N11",
      "b": "N12",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N12",
      "b": "N13",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N13",
      "b": "N14",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N14",
      "b": "N15",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N15",
      "b": "N16",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N16",
      "b": "N01",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N01",
      "b": "N13",
-     "type": "cross"
+     "type": "cross",
+     "directed": true
     },
     {
      "a": "N03",
      "b": "N12",
-     "type": "cross"
+     "type": "cross",
+     "directed": true
     },
     {
      "a": "N08",
      "b": "N05",
-     "type": "cross"
+     "type": "cross",
+     "directed": true
     },
     {
      "a": "N11",
      "b": "N04",
-     "type": "cross"
+     "type": "cross",
+     "directed": true
     },
     {
      "a": "N16",
      "b": "N13",
-     "type": "cross"
+     "type": "cross",
+     "directed": true
     }
    ]
   },
@@ -1200,22 +1282,26 @@
     {
      "a": "N01",
      "b": "N02",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N02",
      "b": "N03",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N03",
      "b": "N04",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N04",
      "b": "N01",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     }
    ]
   },
@@ -1271,22 +1357,26 @@
     {
      "a": "N01",
      "b": "N02",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N02",
      "b": "N03",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N03",
      "b": "N04",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     },
     {
      "a": "N04",
      "b": "N01",
-     "type": "wall"
+     "type": "wall",
+     "directed": null
     }
    ]
   }
@@ -1500,6 +1590,242 @@
      "B"
     ],
     "distancePx": 5
+   }
+  },
+  {
+   "name": "directed_forward",
+   "nodes": [
+    [
+     "A",
+     0,
+     0
+    ],
+    [
+     "M",
+     0,
+     100
+    ],
+    [
+     "B",
+     5,
+     0
+    ]
+   ],
+   "edges": [
+    [
+     "A",
+     "M",
+     "wall"
+    ],
+    [
+     "M",
+     "B",
+     "wall"
+    ],
+    [
+     "A",
+     "B",
+     "cross",
+     true
+    ]
+   ],
+   "start": "A",
+   "end": "B",
+   "penalty": 0,
+   "result": {
+    "path": [
+     "A",
+     "B"
+    ],
+    "distancePx": 5
+   }
+  },
+  {
+   "name": "directed_backward",
+   "nodes": [
+    [
+     "A",
+     0,
+     0
+    ],
+    [
+     "M",
+     0,
+     100
+    ],
+    [
+     "B",
+     5,
+     0
+    ]
+   ],
+   "edges": [
+    [
+     "A",
+     "M",
+     "wall"
+    ],
+    [
+     "M",
+     "B",
+     "wall"
+    ],
+    [
+     "A",
+     "B",
+     "cross",
+     true
+    ]
+   ],
+   "start": "B",
+   "end": "A",
+   "penalty": 0,
+   "result": {
+    "path": [
+     "B",
+     "M",
+     "A"
+    ],
+    "distancePx": 200.12492197250393
+   }
+  },
+  {
+   "name": "landmark_cross_not_shortcut",
+   "nodes": [
+    [
+     "A",
+     0,
+     0
+    ],
+    [
+     "L",
+     10,
+     0,
+     "landmark"
+    ],
+    [
+     "M",
+     10,
+     -100
+    ],
+    [
+     "F",
+     16,
+     8
+    ],
+    [
+     "B",
+     16,
+     0
+    ]
+   ],
+   "edges": [
+    [
+     "A",
+     "L",
+     "wall"
+    ],
+    [
+     "L",
+     "M",
+     "wall"
+    ],
+    [
+     "M",
+     "B",
+     "wall"
+    ],
+    [
+     "L",
+     "F",
+     "cross"
+    ],
+    [
+     "F",
+     "B",
+     "wall"
+    ]
+   ],
+   "start": "A",
+   "end": "B",
+   "penalty": 0,
+   "result": {
+    "path": [
+     "A",
+     "L",
+     "M",
+     "B"
+    ],
+    "distancePx": 210.17983829094555
+   }
+  },
+  {
+   "name": "landmark_cross_from_itself",
+   "nodes": [
+    [
+     "A",
+     0,
+     0
+    ],
+    [
+     "L",
+     10,
+     0,
+     "landmark"
+    ],
+    [
+     "M",
+     10,
+     -100
+    ],
+    [
+     "F",
+     16,
+     8
+    ],
+    [
+     "B",
+     16,
+     0
+    ]
+   ],
+   "edges": [
+    [
+     "A",
+     "L",
+     "wall"
+    ],
+    [
+     "L",
+     "M",
+     "wall"
+    ],
+    [
+     "M",
+     "B",
+     "wall"
+    ],
+    [
+     "L",
+     "F",
+     "cross"
+    ],
+    [
+     "F",
+     "B",
+     "wall"
+    ]
+   ],
+   "start": "L",
+   "end": "B",
+   "penalty": 0,
+   "result": {
+    "path": [
+     "L",
+     "F",
+     "B"
+    ],
+    "distancePx": 18
    }
   },
   {
@@ -2523,757 +2849,908 @@
    {
     "a": "N01",
     "b": "N02",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N02",
     "b": "N03",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N03",
     "b": "N04",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N04",
     "b": "N05",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N05",
     "b": "N06",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N06",
     "b": "N07",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N07",
     "b": "N08",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N08",
     "b": "N09",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N09",
     "b": "N10",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N10",
     "b": "N11",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N11",
     "b": "N12",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N12",
     "b": "N13",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N13",
     "b": "N14",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N14",
     "b": "N15",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N15",
     "b": "N16",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N16",
     "b": "N17",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N17",
     "b": "N18",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N18",
     "b": "N19",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N19",
     "b": "N20",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N20",
     "b": "N21",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N21",
     "b": "N22",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N22",
     "b": "N23",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N23",
     "b": "N24",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N24",
     "b": "N25",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N25",
     "b": "N26",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N26",
     "b": "N27",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N27",
     "b": "N28",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N28",
     "b": "N29",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N29",
     "b": "N30",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N30",
     "b": "N31",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N31",
     "b": "N32",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N32",
     "b": "N33",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N33",
     "b": "N34",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N34",
     "b": "N35",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N35",
     "b": "N36",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N36",
     "b": "N37",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N37",
     "b": "N38",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N38",
     "b": "N39",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N39",
     "b": "N40",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N40",
     "b": "N41",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N41",
     "b": "N42",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N42",
     "b": "N43",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N43",
     "b": "N44",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N44",
     "b": "N45",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N45",
     "b": "N46",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N46",
     "b": "N47",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N47",
     "b": "N48",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N48",
     "b": "N49",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N49",
     "b": "N50",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N50",
     "b": "N51",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N51",
     "b": "N52",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N52",
     "b": "N53",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N53",
     "b": "N54",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N54",
     "b": "N55",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N55",
     "b": "N56",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N56",
     "b": "N57",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N57",
     "b": "N58",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N58",
     "b": "N59",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N59",
     "b": "N60",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N60",
     "b": "N61",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N61",
     "b": "N62",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N62",
     "b": "N63",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N63",
     "b": "N64",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N64",
     "b": "N65",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N65",
     "b": "N66",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N66",
     "b": "N67",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N67",
     "b": "N68",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N68",
     "b": "N69",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N69",
     "b": "N70",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N70",
     "b": "N71",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N71",
     "b": "N72",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N72",
     "b": "N73",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N73",
     "b": "N74",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N74",
     "b": "N75",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N75",
     "b": "N76",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N76",
     "b": "N77",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N77",
     "b": "N78",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N78",
     "b": "N79",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N79",
     "b": "N80",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N80",
     "b": "N81",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N81",
     "b": "N82",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N82",
     "b": "N83",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N83",
     "b": "N84",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N84",
     "b": "N85",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N85",
     "b": "N86",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N86",
     "b": "N87",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N87",
     "b": "N88",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N88",
     "b": "N89",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N89",
     "b": "N90",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N90",
     "b": "N91",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N91",
     "b": "N92",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N92",
     "b": "N93",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N93",
     "b": "N94",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N94",
     "b": "N95",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N95",
     "b": "N96",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N96",
     "b": "N97",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N97",
     "b": "N98",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N98",
     "b": "N99",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N99",
     "b": "N100",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N100",
     "b": "N101",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N101",
     "b": "N102",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N102",
     "b": "N103",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N103",
     "b": "N104",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N104",
     "b": "N105",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N105",
     "b": "N01",
-    "type": "wall"
+    "type": "wall",
+    "directed": null
    },
    {
     "a": "N98",
     "b": "N95",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N101",
     "b": "N93",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N40",
     "b": "N32",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N46",
     "b": "N60",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N87",
     "b": "N82",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N83",
     "b": "N86",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N79",
     "b": "N09",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N77",
     "b": "N12",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N76",
     "b": "N15",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N19",
     "b": "N23",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N24",
     "b": "N18",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N24",
     "b": "N69",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N75",
     "b": "N16",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N29",
     "b": "N41",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N29",
     "b": "N66",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N70",
     "b": "N21",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N67",
     "b": "N28",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N65",
     "b": "N30",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N63",
     "b": "N35",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N58",
     "b": "N49",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N50",
     "b": "N44",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N50",
     "b": "N57",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N52",
     "b": "N55",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N56",
     "b": "N51",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N04",
     "b": "N105",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N07",
     "b": "N90",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N08",
     "b": "N89",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N08",
     "b": "N80",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N11",
     "b": "N78",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N17",
     "b": "N25",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N17",
     "b": "N74",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N27",
     "b": "N72",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N27",
     "b": "N68",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N31",
     "b": "N41",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N31",
     "b": "N64",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N39",
     "b": "N33",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N39",
     "b": "N36",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N42",
     "b": "N62",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N43",
     "b": "N61",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N48",
     "b": "N59",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N73",
     "b": "N26",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N88",
     "b": "N81",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N91",
     "b": "N05",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N91",
     "b": "N02",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N99",
     "b": "N94",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    },
    {
     "a": "N102",
     "b": "N92",
-    "type": "cross"
+    "type": "cross",
+    "directed": true
    }
   ]
  }

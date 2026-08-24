@@ -18,6 +18,19 @@
 뺀 **실제 거리**다 — 사용자에게 "48m 남았습니다"라고 말할 때 쓰는 값이므로
 가상 비용이 섞이면 안 된다.
 
+기본값은 `find_node_path` 의 인자에 10.0 으로 적혀 있지만 **실제로 도는 값은
+5.0** 이다. `build_route()` 가 `source.cross_penalty_m()` 을 넘기고, 그쪽이
+관리자웹 `PathNodePage.tsx` 의 기본값과 맞춰 5.0 을 준다.
+
+── 건너기에 걸리는 규칙은 둘이다 ────────────────────────────────────
+
+    ① 목적지 건너기 제한   목적지(landmark)에서 뻗는 건너기는 그 목적지가
+                          이번 경로의 출발지일 때만 쓴다
+    ② 단방향              a(입구·벽 끝) → b(맞은편) 으로만 간다
+
+둘 다 `pathfind.ts` 에 있고, 여기도 둘 다 있어야 한다. `find_node_path` 는
+한동안 ②만 있었다 — 자세한 것은 그 함수 주석.
+
 ── 왜 노드가 아니라 비콘인가 ────────────────────────────────────────
 
 경로 탐색은 노드 그래프에서 하지만, 앱에 내려주는 것은 비콘 순서다.
@@ -66,14 +79,21 @@ def find_shortest_path(nodes, edges, start_id: str, end_id: str,
                        cross_penalty_px: float) -> PathfindResult | None:
     """`WEB-FE/src/features/mapEditor/pathfind.ts` 를 그대로 옮긴 것.
 
+    **안내에는 안 쓴다.** 실제 경로는 `find_node_path()` 가 만든다. 이 함수는
+    `tests/test_path_nodes.py` 가 TS 원본 출력과 대조하는 데만 쓴다 — 관리자웹과
+    답이 갈리지 않는지 확인하는 자다.
+
     관리자웹이 화면에서 보여주는 경로와 **정확히 같은 답**을 내야 하므로 반환값의
     의미까지 원본을 따른다. `distance_px` 에 페널티가 섞여 있는 것도 원본 그대로다
     (사용자에게 말할 거리로 쓰면 안 된다 — 그건 `find_node_path` 의 `dist_m` 이다).
 
-    nodes/edges 는 dict 나 속성 접근이 되는 객체 아무거나 받는다.
+    nodes/edges 는 dict 나 속성 접근이 되는 객체 아무거나 받는다. `type` 이나
+    `directed` 가 없으면 없는 대로 다룬다 — 옛 픽스처가 그 필드를 안 싣는다.
     """
-    def get(o, k):
-        return o[k] if isinstance(o, dict) else getattr(o, k)
+    def get(o, k, default=None):
+        if isinstance(o, dict):
+            return o.get(k, default)
+        return getattr(o, k, default)
 
     if start_id == end_id:
         return PathfindResult(path=[start_id], distance_px=0.0)
@@ -86,11 +106,16 @@ def find_shortest_path(nodes, edges, start_id: str, end_id: str,
         if a is None or b is None:
             continue
         dist = math.hypot(get(a, "x") - get(b, "x"), get(a, "y") - get(b, "y"))
-        weight = dist + cross_penalty_px if get(e, "type") == "cross" else dist
-        # **건너기도 양방향이다.** 코너에서도 건너기가 생기게 바뀐 뒤로는 한쪽만
-        # 허용할 근거가 없다 (docs/WEBFE_접합_변경기록.md §6).
+        is_cross = get(e, "type") == "cross"
+        weight = dist + cross_penalty_px if is_cross else dist
+
+        # ① 목적지 건너기는 그 목적지에서 출발할 때만 — isCrossEdgeUsable()
+        if is_cross and get(a, "type") == "landmark" and get(a, "id") != start_id:
+            continue
         adjacency[get(a, "id")].append((get(b, "id"), weight))
-        adjacency[get(b, "id")].append((get(a, "id"), weight))
+        # ② 건너기는 단방향 — 관리자웹은 cross 를 항상 directed 로 만든다
+        if not get(e, "directed", False):
+            adjacency[get(b, "id")].append((get(a, "id"), weight))
 
     if start_id not in adjacency or end_id not in adjacency:
         return None
@@ -153,12 +178,33 @@ def find_node_path(graph: Graph, start_id: str, end_id: str,
         if e.a not in adj or e.b not in adj:
             continue
         is_cross = 1 if e.type == "cross" else 0
+
+        # ── ① 목적지 건너기는 그 목적지에서 출발할 때만 쓴다 ──────────
+        #
+        # 목적지 건너기는 "여기서 출발해 반대편으로 건너세요"라는 뜻이다.
+        # 그런데 무관한 두 지점 사이의 최단 경로가 지나가는 길에 **남의 방 문
+        # 앞을 지름길처럼 가로질러** 버리면, 그 목적지에 있지도 않은 사람에게
+        # 벽에서 손을 떼라는 안내가 나간다. 화면을 볼 수 없으면 확인할 방법이 없다.
+        #
+        # 연결자(계단·엘리베이터)는 원래 경로 중간에 정상적으로 거쳐가는 지점이라
+        # 이 제한을 두지 않는다.
+        #
+        # `pathfind.ts` 의 `isCrossEdgeUsable()` 과 같은 규칙이다. 재포팅할 때
+        # 아래 ②만 가져오고 이것을 빠뜨렸는데, 실측 4층 757쌍 중 **205쌍(27%)이
+        # 관리자웹과 다른 경로로 나가고 있었다.**
+        if is_cross:
+            a = graph.node(e.a)
+            if a is not None and a.type == "landmark" and a.id != start_id:
+                continue
+
         cost = e.dist_m + is_cross * cross_penalty_m
         adj[e.a].append((e.b, cost, e.dist_m, is_cross))
-        # **건너기는 단방향이다.** a(입구/벽 끝) → b(맞은편) 으로만 건넌다.
+
+        # ── ② 건너기는 단방향이다 ──────────────────────────────────
         #
-        # 맞은편 지점은 벽에서 떨어진 허공이라 거기서 출발할 수가 없다. 벽을
-        # 만지며 걷는 사람에게 출발점은 반드시 벽에 붙어 있어야 한다.
+        # a(입구/벽 끝) → b(맞은편) 으로만 건넌다. 맞은편 지점은 벽에서 떨어진
+        # 허공이라 거기서 출발할 수가 없다. 벽을 만지며 걷는 사람에게 출발점은
+        # 반드시 벽에 붙어 있어야 한다.
         #
         # 한때 양방향으로 열어뒀는데 **관리자웹과 다른 경로가 나왔다.**
         # pathfind.ts 는 `if (!e.directed)` 일 때만 역방향을 열고, 관리자웹은

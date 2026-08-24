@@ -161,11 +161,26 @@ def main() -> int:
             cross = sum(1 for e in got.edges if e.type == "cross")
             check(same, "연결 순서·종류", f"건너기 {cross}개")
 
+            # **방향까지 본다.** 이걸 안 보면 파이썬이 건너기를 양방향으로 다뤄도
+            # 통과한다 — 실제로 한동안 그랬고, 관리자웹과 다른 경로가 나갔다.
+            dir_bad = next(
+                (f'{g.a}→{g.b}: {g.directed} != {w_["directed"]}'
+                 for g, w_ in zip(got.edges, real["edges"], strict=True)
+                 if w_.get("directed") is not None and g.directed != w_["directed"]),
+                None)
+            check(dir_bad is None, "연결 방향(directed)", dir_bad or "전부 일치")
+
     # ── 경로 찾기 ────────────────────────────────────────────
     print("\n── 경로 찾기 (원본 TS 출력과 대조) ──")
     for case in ref["pathfind"]:
-        nodes = [{"id": i, "x": x, "y": y} for i, x, y in case["nodes"]]
-        edges = [{"a": a, "b": b, "type": t} for a, b, t in case["edges"]]
+        # 노드는 [id, x, y, type?], 엣지는 [a, b, type, directed?].
+        # type·directed 가 있어야 건너기 규칙 둘(목적지 제한·단방향)을 검사할 수 있다.
+        nodes = [{"id": n[0], "x": n[1], "y": n[2],
+                  "type": n[3] if len(n) > 3 else "corner"}
+                 for n in case["nodes"]]
+        edges = [{"a": e[0], "b": e[1], "type": e[2],
+                  **({"directed": e[3]} if len(e) > 3 else {})}
+                 for e in case["edges"]]
         got = find_shortest_path(nodes, edges, case["start"], case["end"], case["penalty"])
         want = case["result"]
 

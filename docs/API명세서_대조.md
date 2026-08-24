@@ -4,10 +4,15 @@
 
 **명세서에 맞추려고 코드를 고치지 않았다.** 어느 쪽이 맞는지는 따로 정할 일이고, 여기서는
 무엇이 다른지만 남긴다. 다만 판단에 도움이 될 만한 사실 하나는 적어둔다 —
-**`WEB-FE` 와 `bleServer` 는 서로 정확히 일치한다.** 차이가 나는 항목은 전부 "명세서 vs
-(관리자웹 + 서버)" 구도이지, 프런트와 백엔드가 어긋난 것이 아니다.
+**API 스키마에 한해서는 `WEB-FE` 와 `bleServer` 가 서로 일치한다.** 차이가 나는 항목은
+전부 "명세서 vs (관리자웹 + 서버)" 구도이지, 프런트와 백엔드가 어긋난 것이 아니다.
 
-대조 시점: 2026-08-22
+> **범위 주의.** 위 문장은 **엔드포인트·필드에만** 해당한다. 경로 탐색은 별개이고,
+> 실제로 갈라져 있었다 — `find_node_path()` 가 `pathfind.ts` 의 건너기 규칙 둘 중
+> 하나(목적지 건너기 제한)를 빠뜨려서, 실측 4층 757쌍 중 **205쌍이 관리자웹과 다른
+> 경로로 안내되고 있었다.** 2026-08-23 에 고쳤다.
+
+대조 시점: 2026-08-22 (경로 탐색 항목은 08-23 갱신)
 
 ---
 
@@ -73,7 +78,25 @@ pages/overview/FloorOverviewPage.tsx:65  층 개요에서 다시 그리기
 관리자웹의 지도 검수 화면에서 축척을 먼저 정해주세요.
 ```
 
-### 1.3 연결자 층별 좌표 — `positions`
+### 1.3 연결자는 통째로 없앴다 (2026-08-24)
+
+명세서의 **연결자(Connectors) 항목 전체가 무효**다. 관리자웹이 연결자 화면·API·
+타입을 걷어냈고(`cac4633`) 서버도 따라 지웠다. 계단·엘리베이터는 이제 그냥
+목적지(`landmarks`)로 등록한다.
+
+```
+없어진 것   GET/POST/DELETE /api/buildings/{id}/connectors
+            PUT/DELETE      .../connectors/{id}/positions/{floorId}
+            층 상태의 connector_missing 단계
+            beacons.connectorId (원래도 없었다)
+```
+
+층을 잇는 지점인지는 이름·분류에서 가린다 — `app/nav/map_source.connector_kind()`.
+자세한 것은 `docs/층간_경로안내.md` §4.
+
+아래는 없애기 전 기록이다.
+
+### 1.3.1 (옛) 연결자 층별 좌표 — `positions`
 
 | 유형 | URL |
 | --- | --- |
@@ -104,7 +127,7 @@ pages/overview/FloorOverviewPage.tsx:65  층 개요에서 다시 그리기
 | 실제 | `semantic` / `reinforcement` |
 
 ```
-semantic        앵커·코너·연결자 입구·목적지 출입구·복도 끝 — 경로상 의미 있는 지점
+semantic        앵커·코너·목적지 출입구·복도 끝 — 경로상 의미 있는 지점
 reinforcement   의미비콘 사이가 D_max(6m)를 넘을 때 채워 넣는 비콘
 ```
 
@@ -114,7 +137,7 @@ reinforcement   의미비콘 사이가 D_max(6m)를 넘을 때 채워 넣는 비
 딸린 차이도 있다.
 
 - `isAnchor`(`type === "anchor"` 파생값) **없음.** 파생 근거인 `anchor` 가 없어졌다
-- `connectorId` **없음.** 연결자와 비콘을 잇지 않는다
+- `connectorId` **없음.** 연결자 개념 자체가 없어졌다(§1.3)
 - 명세서가 "`type` 은 등록 폼에만 쓰이고 위치판정에서는 안 본다"고 한 것은 **지금도 맞다.**
   판정은 `major`/`minor` 로만 한다
 
@@ -145,7 +168,7 @@ reinforcement   의미비콘 사이가 D_max(6m)를 넘을 때 채워 넣는 비
 | | 단계 |
 | --- | --- |
 | 명세서 | `floorplan_missing → review_needed → beacon_missing → connector_missing → ready` |
-| 실제 | `floorplan_missing → review_needed → **scale_missing** → beacon_missing → connector_missing → ready` |
+| 실제 | `floorplan_missing → review_needed → **scale_missing** → beacon_missing → ready`<br>(`connector_missing` 은 있었다가 2026-08-24 에 빠졌다) |
 
 축척이 생기면서 단계도 하나 늘었다. 판정은 `app/status.py:floor_status()` 에 있고,
 관리자웹 `handlers.ts:computeFloorStatus` 와 **순서가 같아야 한다**(주석에 적어둠).
@@ -182,18 +205,17 @@ to_design = DESIGN_W / mask_w          # db_map_source.py
 x = n["x"] * to_design
 ```
 
-### 3.2 노드 네 종류
+### 3.2 노드 세 종류
 
 ```ts
-type NodeKind = 'corner' | 'connector' | 'landmark' | 'facing'
+type NodeKind = 'corner' | 'landmark' | 'facing'
 ```
 
 | 종류 | 무엇 | 어디서 나오나 |
 | --- | --- | --- |
 | `corner` | 이동영역 경계가 꺾이는 지점 | 마스크 외곽선을 단순화한 꼭짓점 |
-| `connector` | 계단·엘리베이터 입구 | 연결자 좌표를 벽선에 스냅 |
-| `landmark` | 목적지 출입구 | 랜드마크 좌표를 벽선에 스냅 |
-| `facing` | 위 지점들의 **맞은편 벽** | 상하좌우로 쏘아 반대편 벽에 맞은 자리 |
+| `landmark` | 목적지 출입구 (계단·엘베 포함) | 랜드마크 좌표를 벽선에 스냅 |
+| `facing` | 위 둘의 **맞은편 벽** | 상하좌우로 쏘아 반대편 벽에 맞은 자리 |
 
 `corner` 만 `concave` 를 갖는다.
 
@@ -204,7 +226,7 @@ const concave = (x - px) * (ny - y) - (y - py) * (nx - x) < 0
 이웃 두 점과의 외적 부호다. `concave === true` 면 **벽 끝**이다 — 복도가 거기서 끊긴다는
 뜻이라, 건너기 후보를 찾는 것도 이 지점에서만 한다.
 
-`facing` 만 `pairKind`(`connector` | `landmark`)를 갖는다. 맞은편이 어느 종류의 입구냐다.
+`facing` 만 `pairKind`(`landmark`)를 갖는다. 목적지 입구의 맞은편이라는 표시다.
 코너의 맞은편으로도 쓰이는 지점이면 **`pairKind` 를 지운다** — 특정 입구 하나의 것이라고
 말할 수 없어서다.
 

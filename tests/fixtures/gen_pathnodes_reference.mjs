@@ -71,7 +71,7 @@ const FIXTURES = [
     rects: [[0, 30, 200, 50], [40, 0, 80, 30], [120, 50, 160, 80]],
     entrances: [
       { x: 45, y: 5, kind: 'landmark' },
-      { x: 155, y: 75, kind: 'connector' },
+      { x: 155, y: 75, kind: 'landmark' },   // 예전엔 connector. 관리자웹이 그 종류를 없앴다
     ],
   },
   {
@@ -104,11 +104,21 @@ for (const f of FIXTURES) {
       id: n.id, x: n.x, y: n.y, type: n.type, concave: n.concave,
       pairKind: n.pairKind ?? null,
     })),
-    edges: edges.map((e) => ({ a: e.a, b: e.b, type: e.type })),
+    // **directed 를 떨어뜨리면 안 된다.** 이게 없으면 파이썬 쪽이 건너기를
+    // 양방향으로 다뤄도 테스트가 통과한다 — 실제로 한동안 그랬다.
+    edges: edges.map((e) => ({ a: e.a, b: e.b, type: e.type, directed: e.directed ?? null })),
   })
 }
 
 // ---- 경로 찾기도 같이 뽑는다 ----
+//
+// 노드는 [id, x, y, type?], 엣지는 [a, b, type, directed?] 다.
+// **type 과 directed 가 픽스처에 실려야** 건너기 규칙 둘을 검사할 수 있다.
+//
+//     ① 목적지 건너기 제한   노드 type 이 'landmark' 인지 알아야 한다
+//     ② 단방향              엣지 directed 를 알아야 한다
+//
+// 둘 다 안 싣던 시절에는 파이썬 포팅본이 규칙을 하나도 안 지켜도 전부 통과했다.
 const PF = [
   {
     name: 'straight_wall',
@@ -145,6 +155,36 @@ const PF = [
     start: 'A', end: 'B', penalty: 0,
   },
   {
+    // ② 단방향. directed 건너기는 a→b 만 — pathfind.test.ts 65행
+    name: 'directed_forward',
+    nodes: [['A', 0, 0], ['M', 0, 100], ['B', 5, 0]],
+    edges: [['A', 'M', 'wall'], ['M', 'B', 'wall'], ['A', 'B', 'cross', true]],
+    start: 'A', end: 'B', penalty: 0,
+  },
+  {
+    // 같은 그래프를 거꾸로. 건너기를 못 타고 우회로를 타야 한다
+    name: 'directed_backward',
+    nodes: [['A', 0, 0], ['M', 0, 100], ['B', 5, 0]],
+    edges: [['A', 'M', 'wall'], ['M', 'B', 'wall'], ['A', 'B', 'cross', true]],
+    start: 'B', end: 'A', penalty: 0,
+  },
+  {
+    // ① 지나가는 길의 목적지 건너기를 지름길로 쓰면 안 된다 — pathfind.test.ts 85행
+    name: 'landmark_cross_not_shortcut',
+    nodes: [['A', 0, 0], ['L', 10, 0, 'landmark'], ['M', 10, -100], ['F', 16, 8], ['B', 16, 0]],
+    edges: [['A', 'L', 'wall'], ['L', 'M', 'wall'], ['M', 'B', 'wall'],
+            ['L', 'F', 'cross'], ['F', 'B', 'wall']],
+    start: 'A', end: 'B', penalty: 0,
+  },
+  {
+    // 그 목적지가 출발지 자신이면 정상적으로 쓴다 — pathfind.test.ts 105행
+    name: 'landmark_cross_from_itself',
+    nodes: [['A', 0, 0], ['L', 10, 0, 'landmark'], ['M', 10, -100], ['F', 16, 8], ['B', 16, 0]],
+    edges: [['A', 'L', 'wall'], ['L', 'M', 'wall'], ['M', 'B', 'wall'],
+            ['L', 'F', 'cross'], ['F', 'B', 'wall']],
+    start: 'L', end: 'B', penalty: 0,
+  },
+  {
     name: 'penalty_boundary_equal',
     nodes: [['A', 0, 0], ['M', 10, 0], ['B', 20, 0]],
     edges: [['A', 'M', 'wall'], ['M', 'B', 'wall'], ['A', 'B', 'cross']],
@@ -153,8 +193,10 @@ const PF = [
 ]
 
 for (const c of PF) {
-  const nodes = c.nodes.map(([id, x, y]) => ({ id, x, y, type: 'corner', concave: false }))
-  const edges = c.edges.map(([a, b, type]) => ({ a, b, type }))
+  const nodes = c.nodes.map(([id, x, y, type]) => ({ id, x, y, type: type ?? 'corner', concave: false }))
+  const edges = c.edges.map(([a, b, type, directed]) => (
+    directed === undefined ? { a, b, type } : { a, b, type, directed }
+  ))
   const r = findShortestPath(nodes, edges, c.start, c.end, c.penalty)
   out.pathfind.push({
     name: c.name, nodes: c.nodes, edges: c.edges,
@@ -179,7 +221,7 @@ try {
   for (let i = 0; i < mask.length; i++) mask[i] = raw[i] ? 1 : 0
 
   const entrances = project.landmarks.map((l) => ({
-    x: l.x, y: l.y, kind: l.isConnector ? 'connector' : 'landmark',
+    x: l.x, y: l.y, kind: 'landmark',
   }))
   const scale = project.scale_m_per_px / project.workScale
   const crossingMaxPx = 12 / scale
@@ -193,7 +235,9 @@ try {
       id: n.id, x: n.x, y: n.y, type: n.type, concave: n.concave,
       pairKind: n.pairKind ?? null,
     })),
-    edges: edges.map((e) => ({ a: e.a, b: e.b, type: e.type })),
+    // **directed 를 떨어뜨리면 안 된다.** 이게 없으면 파이썬 쪽이 건너기를
+    // 양방향으로 다뤄도 테스트가 통과한다 — 실제로 한동안 그랬다.
+    edges: edges.map((e) => ({ a: e.a, b: e.b, type: e.type, directed: e.directed ?? null })),
   }
   console.log(`  실측 4층: 노드 ${nodes.length} / 연결 ${edges.length}`)
 } catch (err) {
