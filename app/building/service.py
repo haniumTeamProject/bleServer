@@ -60,6 +60,26 @@ def update_building(db: Session, building_id: str, req: BuildingRequest) -> Buil
 
 
 def delete_building(db: Session, building_id: str) -> None:
+    """건물과 **그 밑의 층 전부**를 지운다.
+
+    예전에는 `buildings` 행 하나만 지웠다. 이 스키마에는 외래키 제약이 없어서
+    (`building_id`·`floor_id` 가 전부 그냥 String) DB 가 대신 정리해 주지 않는다.
+    그래서 층이 통째로 **주인 없는 행**으로 남았다.
+
+    층 삭제(`delete_floor`)는 같은 문제를 이미 고쳤는데 건물 쪽이 빠져 있었다.
+    그리고 층이 고아가 되면 관리자웹 목록에 안 뜨므로 **손으로 지울 방법조차
+    없어진다.** 실제로 실측 DB 에 고아 층 4개(비콘 76개·목적지 44개)가 쌓여 있었고,
+    폰이 그중 하나를 잡는 바람에 목적지가 3개만 내려가는 것을 한참 뒤에 알았다.
+
+    정리는 `_purge_floor` 하나로 모은다 — 표가 늘 때 고칠 곳이 둘이면 또 갈라진다.
+    """
+    from app.floor.models import Floor
+    from app.floor.service import _purge_floor
+
     building = get_building(db, building_id)
+
+    for floor_id, in db.query(Floor.id).filter(Floor.building_id == building_id).all():
+        _purge_floor(db, floor_id)
+
     db.delete(building)
     db.commit()

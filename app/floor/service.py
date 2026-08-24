@@ -56,21 +56,33 @@ def delete_floor(db: Session, floor_id: str) -> None:
 
     남은 행은 조용히 쌓이기만 하는 게 아니다. 목적지 목록이나 통계처럼 층을
     거치지 않고 테이블을 직접 훑는 곳에서는 지운 층의 데이터가 그대로 나온다.
+
+    **표를 하나 늘릴 때마다 여기도 늘려야 한다.** 실제로 `floor_path_nodes` 가
+    나중에 생기면서 이 목록에 안 들어와, 층을 지워도 경로노드가 남았다.
+    """
+    _purge_floor(db, floor_id)
+    db.commit()
+
+
+def _purge_floor(db: Session, floor_id: str) -> None:
+    """층 하나에 딸린 것을 전부 지운다. **커밋은 부르는 쪽이 한다.**
+
+    건물을 지울 때도 층마다 이걸 부르므로, 여러 층을 한 트랜잭션으로 묶을 수
+    있어야 한다.
     """
     from app.beacon.models import Beacon
-    from app.connector.models import ConnectorPosition
     from app.floorplan.models import Floorplan
     from app.landmark.models import Landmark
     from app.mask.models import FloorMask
+    from app.pathnode.models import FloorPathNodes
 
     floor = get_floor(db, floor_id)
     db.query(Beacon).filter(Beacon.floor_id == floor_id).delete()
     db.query(Landmark).filter(Landmark.floor_id == floor_id).delete()
-    db.query(ConnectorPosition).filter(ConnectorPosition.floor_id == floor_id).delete()
     db.query(Floorplan).filter(Floorplan.floor_id == floor_id).delete()
     db.query(FloorMask).filter(FloorMask.floor_id == floor_id).delete()
+    db.query(FloorPathNodes).filter(FloorPathNodes.floor_id == floor_id).delete()
     db.delete(floor)
-    db.commit()
 
 
 def set_scale(db: Session, floor_id: str, scale_m_per_px: float) -> None:

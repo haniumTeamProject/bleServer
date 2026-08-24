@@ -38,7 +38,6 @@ from sqlalchemy.orm import sessionmaker  # noqa: E402
 
 import app.database as database  # noqa: E402
 from app.beacon.models import Beacon  # noqa: E402
-from app.connector.models import Connector, ConnectorPosition  # noqa: E402
 from app.database import Base  # noqa: E402
 from app.floor.models import Floor  # noqa: E402
 from app.floorplan.models import Floorplan  # noqa: E402
@@ -113,28 +112,27 @@ def main() -> int:  # noqa: C901
                           mac=f"{'AA' if fid == F1 else 'BB'}:01:00:00:00:{i + 1:02X}",
                           source_label=b["id"]))
 
-    # 목적지는 4층에만 둔다 — 1층에서 "407호"라고 말하면 다른 층에서 찾아야 한다.
+    # 목적지는 4층에만 둔다 — 1층에서 "407"이라고 말하면 다른 층에서 찾아야 한다.
     for i, lm in enumerate(d["landmarks"]):
         db.add(Landmark(id=f"lm{i}", floor_id=F4, name=lm["name"],
                         x=lm["x"] * k, y=lm["y"] * k))
 
-    # 두 층을 잇는 계단 둘. 하나는 가깝고 하나는 멀다 — 가까운 쪽을 고르는지 본다.
+    # **계단·엘베도 그냥 목적지다.** 연결자 테이블은 없앴다.
+    #
+    # 1층에 셋을 둔다 — 가까운 계단, 먼 계단, 가까운 계단 바로 옆 엘베.
+    # 거리로 고르는지, 엘리베이터를 밀어주는지, 출발 위치에 따라 바뀌는지를 본다.
     near = d["beacons"][0]
     far = d["beacons"][-1]
-    db.add(Connector(id="cn-near", building_id="b", name="계단1",
-                     type="stairs", floors=[1, 4]))
-    db.add(Connector(id="cn-far", building_id="b", name="계단2",
-                     type="stairs", floors=[1, 4]))
-    for cid, pt in (("cn-near", near), ("cn-far", far)):
-        for fid in (F1, F4):
-            db.add(ConnectorPosition(connector_id=cid, floor_id=fid,
-                                     x=pt["x"] * k, y=pt["y"] * k))
-
-    # 1층만 운행하는 연결자 — 후보로 뽑히면 안 된다.
-    db.add(Connector(id="cn-solo", building_id="b", name="계단3",
-                     type="stairs", floors=[1]))
-    db.add(ConnectorPosition(connector_id="cn-solo", floor_id=F1,
-                             x=near["x"] * k, y=near["y"] * k))
+    db.add(Landmark(id="f1-stair-near", floor_id=F1, name="계단1",
+                    x=near["x"] * k, y=near["y"] * k))
+    db.add(Landmark(id="f1-stair-far", floor_id=F1, name="계단2",
+                    x=far["x"] * k, y=far["y"] * k))
+    # 가까운 계단에서 조금 떨어뜨린다(설계도 좌표 60px < ELEVATOR_BONUS_PX 100).
+    db.add(Landmark(id="f1-lift", floor_id=F1, name="엘베1",
+                    x=near["x"] * k + 60, y=near["y"] * k))
+    # 층을 잇지 않는 목적지도 하나 — 후보에 끼면 안 된다.
+    db.add(Landmark(id="f1-room", floor_id=F1, name="101",
+                    x=near["x"] * k, y=near["y"] * k + 5))
     db.commit()
     db.close()
 
@@ -163,23 +161,50 @@ def main() -> int:  # noqa: C901
     cross = legs_mod.plan_legs(db, F1, "lm10", "407",
                                origin_x=near["x"] * k, origin_y=near["y"] * k)
     check(len(cross) == 2, "다른 층이면 구간이 둘", " → ".join(x.dest_name for x in cross))
-    check(cross[0].dest_name == "계단1",
-          "가까운 연결자를 고른다", f"고른 것: {cross[0].dest_name}")
     check(cross[0].is_final is False and cross[1].is_final is True,
           "마지막 구간에만 is_final")
     check(cross[0].next_floor_no == 4, "다음 층 번호를 들고 있다",
           f"{cross[0].next_floor_no}층")
-    check("계단3" not in [x.dest_name for x in cross],
-          "한 층만 운행하는 연결자는 후보에서 빠진다")
+    check("101" not in [x.dest_name for x in cross],
+          "층을 안 잇는 목적지는 후보에서 빠진다")
+
+    # 계단이 더 가깝지만 엘베가 ELEVATOR_BONUS_PX 안이면 엘베로 바꾼다.
+    check(cross[0].dest_name == "엘베1" and cross[0].connector_type == "elevator",
+          "가까운 계단보다 조금 먼 엘베를 고른다", cross[0].dest_name)
 
     far_first = legs_mod.plan_legs(db, F1, "lm10", "407",
                                    origin_x=far["x"] * k, origin_y=far["y"] * k)
     check(far_first[0].dest_name == "계단2",
-          "출발 위치가 바뀌면 고르는 연결자도 바뀐다", far_first[0].dest_name)
+          "출발 위치가 바뀌면 고르는 것도 바뀐다", far_first[0].dest_name)
+    check(far_first[0].connector_type == "stairs",
+          "멀리 있는 엘베까지 끌려가지 않는다", far_first[0].connector_type)
 
     speech = cross[0].handoff_speech()
-    check("도착" not in speech and "4층" in speech,
-          "경유지 문구가 도착이 아니다", speech)
+    check("도착" not in speech and "4층" in speech and "엘리베이터" in speech,
+          "경유지 문구가 도착이 아니고 종류를 말한다", speech)
+
+    # 이름·분류로 종류를 가린다 (map_source.connector_kind)
+    from app.nav.map_source import connector_kind
+    check(connector_kind("계단1") == "stairs", "이름으로 계단을 가린다")
+    check(connector_kind("엘베2") == "elevator", "이름으로 엘베를 가린다")
+    check(connector_kind("엘리베이터 1호기") == "elevator", "긴 이름도 가린다")
+    check(connector_kind("407") is None, "방 번호는 층을 안 잇는다")
+    check(connector_kind("1번 출입구", "계단") == "stairs", "분류로도 가린다")
+    check(connector_kind("엘리베이터 옆 계단") == "elevator",
+          "둘 다 걸리면 엘리베이터", "계단으로 안내했다가 못 오르는 쪽이 위험")
+
+    # 층을 잇는 목적지가 하나도 없는 층에서는 이유를 말한다.
+    # 5층은 목적지를 하나도 안 넣었다.
+    db.add(Floor(id="f-5", building_id="b", floor=5, major=105,
+                 scale_m_per_px=scale))
+    db.commit()
+    try:
+        legs_mod.plan_legs(db, "f-5", "lm10", "407")
+        err = ""
+    except Exception as e:
+        err = str(e)
+    check("계단이나 엘리베이터" in err,
+          "층을 잇는 목적지가 없으면 이유를 말한다", err.splitlines()[0] if err else "예외 없음")
     db.close()
 
     # ── 실제 세션 ─────────────────────────────────────────────

@@ -52,12 +52,12 @@ from sqlalchemy.orm import Session
 
 from app.beacon.models import Beacon
 from app.building.models import Building
-from app.connector.models import Connector, ConnectorPosition
 from app.floor.models import Floor
 from app.floorplan.models import Floorplan
 from app.landmark.models import Landmark
 from app.mask.models import FloorMask
-from app.nav.map_source import (
+from app.nav.map_source import (  # noqa: F401
+    connector_kind,
     BeaconInfo,
     Edge,
     FloorInfo,
@@ -152,13 +152,17 @@ class DbMapSource:
         ]
 
     def landmarks(self, floor_id: str) -> list[LandmarkInfo]:
-        """목적지 후보. **수직연결자도 포함한다.**
+        """목적지 후보.
 
-        DB 는 랜드마크와 연결자를 다른 테이블에 두지만, 사용자에게는 둘 다
-        "갈 수 있는 곳"이다. 엘리베이터를 목적지로 말할 수 없으면 층 이동이
-        불가능해진다. 그래서 여기서 합쳐서 내보낸다.
+        ── 계단·엘리베이터도 그냥 목적지다 ────────────────────────
+
+        예전에는 `connectors` 테이블을 따로 두고 여기서 합쳐 내보냈다. 그래서
+        같은 계단이 `landmarks` 에도 `connectors` 에도 있으면 목록에 두 번 떴고,
+        되묻기가 늘었다. 관리자웹이 연결자 기능을 걷어내면서(`cac4633`) 여기도
+        랜드마크 한 갈래로 정리했다. 층을 잇는 지점인지는 `app/nav/legs.py` 의
+        `connector_kind()` 가 이름·분류로 가린다.
         """
-        out = [
+        return [
             LandmarkInfo(
                 id=lm.id,
                 name=lm.name or lm.source_label or lm.id,
@@ -166,12 +170,11 @@ class DbMapSource:
                 y=float(lm.y or 0),
                 type=lm.category or "room",
                 door_side=None,     # DB 에 아직 컬럼이 없다 (docs/WEBFE_접합_변경기록.md)
-                is_connector=False,
+                # 저장된 값이 아니라 이름에서 가린다. `/monitor` 표시용.
+                is_connector=connector_kind(lm.name, lm.category) is not None,
             )
             for lm in self.db.query(Landmark).filter(Landmark.floor_id == floor_id).all()
         ]
-        out.extend(self._connector_landmarks(floor_id))
-        return out
 
     def graph(self, floor_id: str) -> Graph:
         """이동영역 마스크에서 경로 그래프를 만든다.
@@ -207,9 +210,10 @@ class DbMapSource:
             )
 
         to_mask = mw / DESIGN_W
+        # 입구 종류는 `landmark` 하나뿐이다. 관리자웹 `NodeKind` 에서도
+        # `connector` 가 빠졌다(`cac4633`).
         entrances = [
-            EntrancePoint(x=lm.x * to_mask, y=lm.y * to_mask,
-                          kind="connector" if lm.is_connector else "landmark")
+            EntrancePoint(x=lm.x * to_mask, y=lm.y * to_mask, kind="landmark")
             for lm in self._entrance_order(floor_id)
         ]
         crossing_max_px = CROSSING_MAX_M / scale
@@ -348,17 +352,17 @@ class DbMapSource:
         """입구를 관리자웹과 **같은 순서로** 늘어놓는다.
 
         순서가 곧 노드 번호(N01, N02…)를 정하므로 바꾸면 그래프가 갈라진다.
-        PathNodePage.tsx 는 연결자를 먼저, 랜드마크를 나중에 넣는다.
+        예전에는 연결자를 먼저, 랜드마크를 나중에 넣었는데 연결자가 없어져서
+        랜드마크만 남았다 — `PathNodePage.tsx` 도 같다.
         """
-        connectors = self._connector_landmarks(floor_id)
-        landmarks = [
+        return [
             LandmarkInfo(id=lm.id, name=lm.name or lm.id,
                          x=float(lm.x or 0), y=float(lm.y or 0),
-                         type=lm.category or "room", door_side=None, is_connector=False)
+                         type=lm.category or "room", door_side=None,
+                         is_connector=connector_kind(lm.name, lm.category) is not None)
             for lm in self.db.query(Landmark).filter(Landmark.floor_id == floor_id).all()
             if lm.x is not None and lm.y is not None
         ]
-        return connectors + landmarks
 
     # -- 내부 --------------------------------------------------------------
     def _floor_info(self, f: Floor, b: Building | None) -> FloorInfo:
@@ -370,29 +374,6 @@ class DbMapSource:
             # 주의: 이 값은 **마스크 픽셀** 기준이다. 모듈 문서 참고.
             scale_m_per_px=float(f.scale_m_per_px) if f.scale_m_per_px else 0.05,
         )
-
-    def _connector_landmarks(self, floor_id: str) -> list[LandmarkInfo]:
-        f = self.db.get(Floor, floor_id)
-        if f is None:
-            return []
-        rows = (
-            self.db.query(Connector, ConnectorPosition)
-            .join(ConnectorPosition, ConnectorPosition.connector_id == Connector.id)
-            .filter(ConnectorPosition.floor_id == floor_id)
-            .all()
-        )
-        return [
-            LandmarkInfo(
-                id=c.id,
-                name=c.name,
-                x=float(p.x or 0),
-                y=float(p.y or 0),
-                type=c.type or "connector",
-                door_side=None,
-                is_connector=True,
-            )
-            for c, p in rows
-        ]
 
 
 # ---------------------------------------------------------------------------

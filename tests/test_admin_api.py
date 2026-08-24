@@ -167,28 +167,36 @@ def main() -> int:
     check(status() == "floorplan_missing", "설계도를 지우면 상태가 되돌아간다", status())
     c.put(f"/api/floors/{fid}/floorplan", json={"imageUrl": "data:image/png;base64,AA"})
 
-    # ── 연결자 좌표 ──────────────────────────────────────────
-    print("\n── 연결자 좌표 (결손 검수의 근거) ──")
-    conn = c.post(f"/api/buildings/{b['id']}/connectors",
-                  json={"name": "1번 엘리베이터", "type": "elevator", "floors": [4]}).json()
-    check(conn["positions"] == [], "새 연결자는 좌표가 비어 있다")
-    check(status() == "connector_missing", "운행층인데 좌표가 없으면 결손", status())
+    # ── 연결자는 없앴다 ──────────────────────────────────────
+    print("\n── 연결자 제거 (cac4633) ──")
+    check(c.post(f"/api/buildings/{b['id']}/connectors",
+                 json={"name": "1번 엘리베이터"}).status_code == 404,
+          "연결자 API 가 없다", "404")
+    from app.status import STATUS_ORDER
+    check("connector_missing" not in STATUS_ORDER,
+          "층 상태에서 connector_missing 이 빠졌다", " → ".join(STATUS_ORDER))
 
-    r = c.put(f"/api/buildings/{b['id']}/connectors/{conn['id']}/positions/{fid}",
-              json={"x": 100, "y": 200})
-    got = r.json() if r.status_code == 200 else {}
-    check(r.status_code == 200 and got.get("positions") == [{"floorId": fid, "x": 100, "y": 200}],
-          "좌표를 찍으면 연결자 전체가 돌아온다", f"{r.status_code}")
-    check(status() == "ready", "좌표를 찍으면 결손이 풀린다", status())
+    # 계단·엘베는 그냥 목적지다 — 상태를 되돌리지 않는다
+    c.post(f"/api/floors/{fid}/landmarks",
+           json={"name": "1번 엘리베이터", "category": "기타", "x": 1, "y": 2})
+    check(status() == "ready", "엘베를 목적지로 넣어도 상태가 그대로", status())
 
-    # 같은 층에 다시 찍으면 덮어쓴다 (중복 생기면 안 됨)
-    r = c.put(f"/api/buildings/{b['id']}/connectors/{conn['id']}/positions/{fid}",
-              json={"x": 300, "y": 400})
-    check(len(r.json()["positions"]) == 1 and r.json()["positions"][0]["x"] == 300,
-          "같은 층에 다시 찍으면 덮어쓴다", "중복 안 생김")
-
-    r = c.delete(f"/api/buildings/{b['id']}/connectors/{conn['id']}/positions/{fid}")
-    check(r.status_code == 200 and r.json()["positions"] == [], "좌표를 지운다")
+    # ── 건물을 지우면 밑의 층도 같이 ──────────────────────────
+    print("\n── 건물 삭제 (고아 방지) ──")
+    b2 = c.post("/api/buildings", json={"code": "tmp", "name": "지울 건물"}).json()
+    f2 = c.post(f"/api/buildings/{b2['id']}/floors", json={"floor": 3}).json()
+    c.post(f"/api/floors/{f2['id']}/landmarks", json={"name": "301", "x": 1, "y": 1})
+    c.post(f"/api/floors/{f2['id']}/beacons",
+           json={"name": "X1", "minor": 7, "type": "semantic", "x": 1, "y": 1})
+    c.delete(f"/api/buildings/{b2['id']}")
+    check(c.get(f"/api/buildings/{b2['id']}").status_code == 404,
+          "건물이 지워졌다", "404")
+    check(c.get(f"/api/buildings/{b2['id']}/floors").json() == [],
+          "층도 같이 지워진다", "고아 층이 안 남는다")
+    check(c.get(f"/api/floors/{f2['id']}/landmarks").json() == [],
+          "밑의 목적지도 같이 지워진다", "고아가 안 남는다")
+    check(c.get(f"/api/floors/{f2['id']}/beacons").json() == [],
+          "밑의 비콘도 같이 지워진다")
 
     # ── 비콘 — sourceUid 가 살아남는가 ───────────────────────
     print("\n── 비콘 (map-tool 재가져오기 키) ──")

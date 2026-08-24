@@ -77,6 +77,36 @@ class BeaconInfo:
         return False
 
 
+# 이름이나 분류에 이 말이 들어 있으면 층을 잇는 지점으로 본다.
+#
+# **엘리베이터를 먼저 본다.** "엘리베이터 옆 계단" 같은 이름이면 둘 다 걸리는데,
+# 그때는 엘리베이터로 치는 편이 안전하다 — 계단으로 안내했다가 못 오르는 사람보다
+# 엘리베이터로 안내했다가 계단을 만나는 쪽이 덜 위험하다.
+ELEVATOR_WORDS = ("엘리베이터", "엘베", "승강기", "elevator", "lift")
+STAIR_WORDS = ("계단", "stair")
+
+
+def connector_kind(name: str | None, category: str | None = None) -> str | None:
+    """이 목적지가 층을 잇는 지점인가. `"elevator"` / `"stairs"` / `None`.
+
+    ── 왜 이름으로 가리나 ────────────────────────────────────────
+
+    예전에는 `connectors` 테이블이 따로 있어서 종류가 컬럼으로 박혀 있었다.
+    관리자웹이 그 기능을 걷어내면서(`cac4633`) 계단·엘리베이터도 그냥 목적지가
+    됐고, 이제 구분할 단서는 이름과 분류뿐이다.
+
+    **이름과 분류를 둘 다 본다.** 관리자웹 분류 목록(`LANDMARK_CATEGORIES`)에는
+    계단·엘리베이터가 없어서 직접 입력해야 하는데, 실측에서는 대개 분류를 비워두고
+    이름만 "계단1", "엘베2" 로 적는다. 한쪽만 보면 절반을 놓친다.
+    """
+    text = f"{name or ''} {category or ''}".lower()
+    if any(w in text for w in ELEVATOR_WORDS):
+        return "elevator"
+    if any(w in text for w in STAIR_WORDS):
+        return "stairs"
+    return None
+
+
 @dataclass(frozen=True)
 class LandmarkInfo:
     """사용자가 목적지로 말할 수 있는 지점."""
@@ -87,6 +117,8 @@ class LandmarkInfo:
     y: float
     type: str = "room"
     door_side: str | None = None      # left | right | None — 도착 안내에 쓴다
+    # 층을 잇는 지점인가(계단·엘베). **저장된 값이 아니라 이름에서 가린 값**이다.
+    # `/monitor` 가 지도에서 색을 달리 칠하는 데 쓴다.
     is_connector: bool = False
 
 

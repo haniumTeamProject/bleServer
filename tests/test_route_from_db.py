@@ -99,7 +99,7 @@ def main() -> int:
                       x=b["x"] * k, y=b["y"] * k, source_label=b["id"]))
     for i, lm in enumerate(d["landmarks"]):
         db.add(Landmark(id=f"lm{i}", floor_id=FLOOR_ID, name=lm["name"],
-                        category="수직연결자" if lm.get("isConnector") else "미분류",
+                        category="미분류",
                         x=lm["x"] * k, y=lm["y"] * k, source_label=lm["id"]))
     db.commit()
     print(f" 마스크 {w}×{h}, 비콘 {len(d['beacons'])}개, 목적지 {len(d['landmarks'])}개")

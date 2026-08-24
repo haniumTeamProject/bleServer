@@ -6,9 +6,9 @@ class PathNodeItem(CamelModel):
     id: str
     x: float
     y: float
-    type: str  # corner | connector | landmark | facing
+    type: str  # corner | landmark | facing
     concave: bool  # corner 타입에서만 의미 있음
-    pair_kind: str | None = None  # connector | landmark — type === 'facing'일 때만 의미 있음
+    pair_kind: str | None = None  # landmark — type === 'facing'일 때만 의미 있음
 
 
 class PathEdgeItem(CamelModel):

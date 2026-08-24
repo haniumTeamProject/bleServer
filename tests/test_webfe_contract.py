@@ -129,7 +129,6 @@ def main() -> int:
     print("\n── 응답 필드가 관리자웹 타입과 맞는가 ──")
     from app.beacon.schemas import BeaconResponse
     from app.building.schemas import BuildingResponse
-    from app.connector.schemas import ConnectorResponse
     from app.floor.schemas import FloorResponse
     from app.landmark.schemas import LandmarkResponse
 
@@ -138,7 +137,8 @@ def main() -> int:
         ("Landmark", LandmarkResponse),
         ("Building", BuildingResponse),
         ("Floor", FloorResponse),
-        ("Connector", ConnectorResponse),
+        # Connector 는 뺐다 — 관리자웹이 연결자 기능을 걷어내면서(cac4633)
+        # domain.ts 에서 타입 자체가 사라졌다.
     ]
     for ts_name, model in pairs:
         want = ts_interface_fields(ts_name)
