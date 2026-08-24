@@ -56,6 +56,15 @@ PENDING_TTL_MS = 120_000
 # 목적지 목록을 잠깐 들고 있는다. 관리자가 목적지를 추가하면 이 시간 안에 반영된다.
 LANDMARK_TTL_MS = 10_000
 
+# 판정이 이만큼 안 움직이면 "아직 가고 있나" 하고 한 번 묻는다 (표 17번).
+#
+# 서버가 판단하는 이유는 **비콘은 오는데 자리가 안 바뀌는** 상태이기 때문이다.
+# 신호가 끊기는 것(표 15·16번)은 앱이 본다 — 서버는 자기가 안 닿는 것을 알릴 수 없다.
+#
+# 30초는 실측으로 정한 값이 아니다. 짧으면 신호가 잠깐 흔들릴 때마다 묻고,
+# 길면 정말 헤매는 사람을 오래 방치한다.
+IDLE_ASK_MS = 30_000
+
 # 기다리던 층이 아닌 곳에서 이만큼 머물러야 "여기 내렸다"고 본다.
 #
 # 계단통을 오르는 동안 지나가는 층의 비콘이 잠깐씩 잡힌다. 그걸 곧바로 도착으로
@@ -104,6 +113,11 @@ class NavSession:
         # 지금 층으로 바뀐 시각. 계단통에서 지나가는 층 신호가 잠깐 잡히는 것과
         # 실제로 그 층에 내린 것을 가리는 데 쓴다.
         self.floor_since: int = 0
+
+        # 마지막으로 칸이 바뀐 시각. 표 17번(정지 지속)이 이걸 본다.
+        self.last_advance_at: int = 0
+        # 이번 정지 구간에서 이미 물어봤는가. 30초마다 되묻지 않으려고 둔다.
+        self.idle_asked = False
 
         # 로그 조절용 — 비콘은 초당 열 번씩 오므로 요약만 남긴다
         self.beacon_count = 0
@@ -155,6 +169,8 @@ class NavSession:
         self.legs = []
         self.leg_index = 0
         self.awaiting_floor = None
+        self.last_advance_at = 0
+        self.idle_asked = False
         self.tracker.set_path([])
 
     # -- 층 이동 ----------------------------------------------------------
@@ -521,6 +537,9 @@ def on_beacons(session: NavSession, data: dict) -> list[dict]:
         # 뒤에 두면 그 구간의 마지막 전환이 파일에 안 들어간다.
         session.mirror_events.append(monitor_mirror.transition_msg(session, transition))
         final = session.on_final_leg
+        # 자리가 바뀌었다 = 사용자가 움직이고 있다. 표 17번 타이머를 되감는다.
+        session.last_advance_at = _now_ms()
+        session.idle_asked = False
         out_msgs.extend(_transition_message(session, transition))
         if transition.get("isLast") and final:
             session.stop_recording("도착")
@@ -851,6 +870,9 @@ def _start_leg(session: NavSession) -> list[dict]:
     session.tracker.set_path(plan.keys, **_track_tuning)
     _seed_index(session, plan.keys)
     session.tracker.start_session()
+    # 표 17번은 "출발하고도 안 움직인다" 부터 세야 한다.
+    session.last_advance_at = _now_ms()
+    session.idle_asked = False
 
     # 목적지가 정해지는 순간이 곧 구간 측정 시작이다 — 버튼을 누를 사람이 없어도
     # 실제 출발 시점과 어긋나지 않는다.
@@ -1103,6 +1125,12 @@ async def navigation_endpoint(websocket: WebSocket):
     lock = asyncio.Lock()
     tasks: set[asyncio.Task] = set()
 
+    # 시간이 조건인 안내(표 17번)는 따로 세는 쪽이 있어야 한다 — 아래 루프는
+    # 폰이 보낸 것이 있을 때만 깨어나므로 "아무 일도 없는 상태"를 못 본다.
+    idle = asyncio.create_task(_watch_idle(websocket, session, lock))
+    tasks.add(idle)
+    idle.add_done_callback(tasks.discard)
+
     try:
         while True:
             raw = await websocket.receive_text()
@@ -1151,6 +1179,54 @@ async def _slow(websocket: WebSocket, session: NavSession, raw: str,
         raise
     except Exception as e:
         print(f"[nav] 처리 오류: {e!r}")
+
+
+async def _watch_idle(websocket: WebSocket, session: NavSession,
+                      lock: asyncio.Lock) -> None:
+    """표 17번 — 비콘은 오는데 **자리가 안 바뀌면** 한 번 물어본다.
+
+    ── 왜 따로 도는 태스크인가 ──────────────────────────────────
+
+    소켓 루프는 `await websocket.receive_text()` 로만 깨어난다. 폰이 보낸 것을
+    처리하는 구조라, **아무 일도 안 일어나는 상태**는 감지할 수가 없다.
+    시간이 조건인 안내는 시간을 세는 쪽이 따로 있어야 한다.
+
+    ── 15·16번은 여기 없다 ─────────────────────────────────────
+
+    신호가 끊기는 것은 **앱이 판단한다.** 서버는 자기 메시지가 안 닿는 것을
+    알릴 방법이 없다 — 파이프가 끊겼는데 파이프로 알릴 수는 없다.
+    그래서 연결이 끊겼다는 안내만은 앱에 문장을 둔다(`NavCoordinator`).
+
+    ── 한 번만 묻는다 ──────────────────────────────────────────
+
+    30초마다 되물으면 잠깐 서서 쉬는 사람에게 계속 말을 건다. 자리가 한 칸이라도
+    바뀌면 플래그가 풀려서 다음 정지 때 다시 물을 수 있다.
+    """
+    try:
+        while True:
+            await asyncio.sleep(1)
+            if session.destination is None or not session.tracker.active:
+                continue
+            # 층을 옮기는 중에는 원래 안 움직인다. 물으면 안 된다.
+            if session.awaiting_floor is not None or session.idle_asked:
+                continue
+            if not session.last_advance_at:
+                continue
+            if _now_ms() - session.last_advance_at < IDLE_ASK_MS:
+                continue
+
+            session.idle_asked = True
+            print(f"[nav {session.id}] {IDLE_ASK_MS // 1000}초째 자리가 그대로 — 확인")
+            msg = out("idle", "navigating",
+                      utterance="안내를 계속할까요? 화면을 두 번 두드려주세요.",
+                      haptic="guide")
+            _log_out(session, msg)
+            async with lock:
+                await _send(websocket, msg)
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        print(f"[nav {session.id}] 정지 감시 오류: {e!r}")
 
 
 async def _send(websocket: WebSocket, msg: dict) -> None:
