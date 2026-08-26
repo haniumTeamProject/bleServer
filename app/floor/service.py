@@ -71,6 +71,7 @@ def _purge_floor(db: Session, floor_id: str) -> None:
     있어야 한다.
     """
     from app.beacon.models import Beacon
+    from app.connector.models import ConnectorPosition
     from app.floorplan.models import Floorplan
     from app.landmark.models import Landmark
     from app.mask.models import FloorMask
@@ -79,6 +80,7 @@ def _purge_floor(db: Session, floor_id: str) -> None:
     floor = get_floor(db, floor_id)
     db.query(Beacon).filter(Beacon.floor_id == floor_id).delete()
     db.query(Landmark).filter(Landmark.floor_id == floor_id).delete()
+    db.query(ConnectorPosition).filter(ConnectorPosition.floor_id == floor_id).delete()
     db.query(Floorplan).filter(Floorplan.floor_id == floor_id).delete()
     db.query(FloorMask).filter(FloorMask.floor_id == floor_id).delete()
     db.query(FloorPathNodes).filter(FloorPathNodes.floor_id == floor_id).delete()

@@ -23,6 +23,7 @@
 from sqlalchemy.orm import Session
 
 from app.beacon.models import Beacon
+from app.connector.models import Connector, ConnectorPosition
 from app.floor.models import Floor
 from app.floorplan.models import Floorplan
 from app.mask.models import FloorMask
@@ -33,6 +34,7 @@ STATUS_ORDER = [
     "review_needed",        # 이동영역(마스크) 미작성
     "scale_missing",        # 축척 미설정
     "beacon_missing",       # 비콘 미등록
+    "connector_missing",    # 운행층인데 연결자 좌표가 빠짐
     "ready",                # 안내 가능
 ]
 
@@ -58,10 +60,24 @@ def floor_status(db: Session, floor: Floor) -> str:
     if not has_beacon:
         return "beacon_missing"
 
-    # 예전에는 여기에 `connector_missing` 단계가 하나 더 있었다. 운행층인데 그 층
-    # 도면에 연결자 좌표를 안 찍은 경우다. 연결자 기능을 걷어내면서(`cac4633`)
-    # 같이 없앴다 — 계단·엘리베이터는 이제 그냥 목적지라 `beacon_missing` 다음에
-    # 따로 검사할 것이 없다.
+    # 이 층을 운행하는 연결자 중 좌표가 안 찍힌 게 있으면 결손.
+    connectors = (
+        db.query(Connector).filter(Connector.building_id == floor.building_id).all()
+    )
+    for c in connectors:
+        if floor.floor not in (c.floors or []):
+            continue
+        placed = (
+            db.query(ConnectorPosition.floor_id)
+            .filter(
+                ConnectorPosition.connector_id == c.id,
+                ConnectorPosition.floor_id == floor.id,
+            )
+            .first()
+        )
+        if placed is None:
+            return "connector_missing"
+
     return "ready"
 
 

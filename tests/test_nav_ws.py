@@ -109,6 +109,7 @@ def main() -> int:
     db.commit()
     db.close()
 
+    from app.ws import navigation_ws
     from app.ws.navigation_ws import NavSession, handle, out
 
     def send(session, msg):
@@ -125,7 +126,20 @@ def main() -> int:
             if mac:
                 one["mac"] = mac
             msgs += send(session, {"event": "beacons", "ts": _ms(), "beacons": [one]})
+            msgs += _settle(session, one)
         return msgs
+
+    def _settle(session, one):
+        """층 확정 대기(FLOOR_SETTLE_MS)를 건너뛴다.
+
+        서버는 건물이 정해진 뒤 잠깐 신호를 모았다가 **가장 센 비콘**으로 층을
+        정한다. 테스트에서 1.5초를 실제로 기다릴 이유가 없으므로 시계만 되감고
+        같은 패킷을 한 번 더 준다. 대기 자체는 아래 "층 확정과 전환"에서 잰다.
+        """
+        if session.building_id is None or session.floor_id is not None:
+            return []
+        session.building_at -= navigation_ws.FLOOR_SETTLE_MS
+        return send(session, {"event": "beacons", "ts": _ms(), "beacons": [one]})
 
     def _ms():
         return int(time.time() * 1000)

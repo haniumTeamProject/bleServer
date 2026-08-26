@@ -5,6 +5,7 @@ from app.admin.router import accounts_router, auth_router, me_router
 from app.beacon.router import router as beacon_router
 from app.building.router import router as building_router
 from app.config import settings
+from app.connector.router import router as connector_router
 from app.database import Base, engine
 from app.floor.router import router as floor_router
 from app.floor.router import scale_router
@@ -44,6 +45,7 @@ app.include_router(me_router)
 app.include_router(building_router)
 app.include_router(floor_router)
 app.include_router(scale_router)   # /api/floors/{id}/scale
+app.include_router(connector_router)
 app.include_router(floorplan_router)
 app.include_router(mask_router)
 app.include_router(beacon_router)

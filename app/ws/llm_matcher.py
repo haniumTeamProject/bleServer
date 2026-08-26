@@ -69,7 +69,10 @@ from app.ws import landmark_matcher
 # ---------------------------------------------------------------------------
 PROVIDER = os.environ.get("LLM_PROVIDER", "ollama").strip().lower()
 MODEL = os.environ.get("LLM_MODEL", "exaone3.5:7.8b").strip()
-BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:11435").rstrip("/")
+# Ollama 기본 포트가 11434 다. 한동안 코드만 11435 로 되어 있어서, 문서대로
+# `ollama serve` 만 하고 서버를 띄우면 **매칭이 조용히 규칙 엔진으로 떨어졌다.**
+# 방 번호는 되고 동의어("변소")만 안 되는 형태라 눈치채기 어렵다.
+BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:11434").rstrip("/")
 API_KEY = os.environ.get("LLM_API_KEY", "").strip()
 TIMEOUT_S = float(os.environ.get("LLM_TIMEOUT", "6"))
 VERIFY_NUMBER = os.environ.get("LLM_VERIFY_NUMBER", "1") != "0"

@@ -79,7 +79,7 @@ class PathNode:
     id: str
     x: float
     y: float
-    type: str            # corner | landmark | facing
+    type: str            # corner | connector | landmark | facing
     concave: bool        # corner 에서만 의미 있음
     pair_kind: str | None = None   # facing 일 때만 — 맞은편이 어느 종류의 입구인지
 
@@ -100,7 +100,7 @@ class PathEdge:
 class EntrancePoint:
     x: float
     y: float
-    kind: str            # landmark (관리자웹이 connector 를 걷어냈다)
+    kind: str            # connector | landmark
 
 
 @dataclass
@@ -412,7 +412,7 @@ def _cardinal_facing_points(mask, w: int, h: int, point: Point,
 
 
 def _kind_priority(kind: str) -> int:
-    if kind == "landmark":
+    if kind in ("connector", "landmark"):
         return 2
     if kind == "facing":
         return 1
@@ -547,7 +547,7 @@ def generate_path_nodes(mask, w: int, h: int,
             proposed_origin = wall_projection.point if on_wall_line else raw_origin
             entrance_entry = find_or_insert(
                 proposed_origin, entrance.kind, None, None, None,
-                ("landmark", "facing"), on_wall_line)
+                ("connector", "landmark", "facing"), on_wall_line)
             # 맞은편 탐색은 **노드의 최종 위치**에서 한다. 스냅하려던 좌표가 근처
             # 코너와 병합되면 노드는 코너 자리를 쓰는데 캐스팅만 옛 좌표에서 하면
             # 건너기가 사선이 된다.
@@ -567,7 +567,7 @@ def generate_path_nodes(mask, w: int, h: int,
                 facing_entry = find_or_insert(
                     facing_raw, "facing", entrance.kind,
                     [entrance_entry, *facing_so_far], axis_lock,
-                    ("landmark",))
+                    ("connector", "landmark"))
                 facing_so_far.append(facing_entry)
                 pairs.append((entrance_entry, facing_entry))
 
@@ -598,7 +598,7 @@ def generate_path_nodes(mask, w: int, h: int,
                 facing_entry = find_or_insert(
                     facing_raw, "facing", None,
                     [corner_entry, *facing_so_far], axis_lock,
-                    ("landmark",))
+                    ("connector", "landmark"))
                 facing_so_far.append(facing_entry)
                 pairs.append((corner_entry, facing_entry))
 

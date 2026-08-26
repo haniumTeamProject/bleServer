@@ -72,6 +72,26 @@ IDLE_ASK_MS = 30_000
 # 거기서 멈출 것이 확실하므로 기다릴 이유가 없다.
 WRONG_FLOOR_DWELL_MS = 5_000
 
+# 건물이 정해진 뒤 층을 확정하기까지 신호를 모으는 시간.
+#
+# 첫 비콘 하나로 층을 정하면 그것이 **가장 가까운 비콘이라는 보장이 없다.** 계단·
+# 엘리베이터 근처에서는 위아래 층 신호가 같이 잡히는데, 먼저 도착한 쪽이 이기면
+# 엉뚱한 층으로 시작한다.
+#
+# 이만큼 필터를 채운 뒤 **가장 센 비콘의 major** 로 정한다. 목적지 목록이 그만큼
+# 늦게 나가지만, 틀린 층의 목록을 즉시 주는 것보다 낫다.
+FLOOR_SETTLE_MS = 1_500
+
+# 층이 바뀌려면 새 층 신호가 이만큼 **혼자** 유지돼야 한다.
+#
+# 엘리베이터 앞에 서 있기만 해도 위아래 층 신호가 샌다. 한 패킷만 보고 바꾸면
+# 거기 서 있는 것만으로 층이 바뀐 줄 알고 다음 구간을 시작한다 — 실제로 그랬고,
+# 그 층 비콘이 제대로 안 잡혀 경로 생성이 실패하면서 안내가 처음으로 돌아갔다.
+#
+# 지금 층 신호가 한 번이라도 섞여 들어오면 후보를 깬다. 그래서 "문 앞에 서 있다"와
+# "정말 타고 올라갔다"가 갈린다 — 후자는 지금 층이 통째로 끊기기 때문이다.
+FLOOR_SWITCH_DWELL_MS = 3_000
+
 
 class NavSession:
     """연결 하나 = 사용자 한 명의 안내 세션."""
@@ -84,10 +104,16 @@ class NavSession:
         self.beacon_ids: dict[str, dict] = {}
         self.tracker = PathTracker()
 
-        # 건물은 MAC 으로 한 번만 정하고, 층은 그 건물 안에서 major 로 따라간다.
+        # 건물은 MAC 으로 한 번만 정하고, 층도 **세션당 한 번만** 정한다.
+        # 층 이동을 기다리는 중일 때만 다시 본다 (`_locate_floor` 참고).
         self.building_id: str | None = None
         self.floor_id: str | None = None
         self.major: int | None = None
+        # 건물이 정해진 시각. 여기서부터 FLOOR_SETTLE_MS 만큼 모은 뒤 층을 정한다.
+        self.building_at: int = 0
+        # 층을 바꿀 후보와 그것이 처음 나온 시각. 지금 층 신호가 섞이면 깨진다.
+        self.floor_cand: int | None = None
+        self.floor_cand_at: int = 0
         self.landmarks: list[landmark_matcher.Landmark] = []
         self.landmarks_at: float = 0.0
 
@@ -461,6 +487,67 @@ def _load_landmarks(session: NavSession) -> list[landmark_matcher.Landmark]:
     return session.landmarks
 
 
+def _building_items(session: NavSession) -> list[dict]:
+    """앱 화면에 띄울 목적지 목록 — **건물 전체.**
+
+    ── 목록은 넓게, 음성 매칭은 좁게 ─────────────────────────────
+
+    이 둘은 성격이 다르므로 후보 범위도 다르다.
+
+        음성   지금 층을 먼저 보고, 없을 때만 다른 층 (`on_destination`)
+        목록   건물 전체 (여기)
+
+    음성을 건물 전체로 열면 "화장실"이 층마다 있어서 매번 되묻게 된다. 반대로
+    목록을 이 층으로 좁히면 **화면으로 고르는 사용자는 다른 층에 아예 갈 수가
+    없다** — 음성이 안 되는 자리(시끄러운 곳, STT 실패)에서 갇힌다.
+
+    되묻기가 생기지 않는 쪽만 넓히는 것이라 둘이 부딪히지 않는다.
+
+    ── 다른 층 것에는 층을 붙인다 ────────────────────────────────
+
+    안 붙이면 "화장실"이 다섯 개 나열돼서 화면으로도 소리로도 무엇이 무엇인지
+    가릴 수가 없다. 지금 층 것은 그대로 둔다 — 대부분이 그것이라 전부 "(4층)"이
+    붙으면 읽는 데 방해만 된다.
+
+    연결자(계단·엘리베이터)는 **지금 층 것만** 넣는다. 다른 층 계단을 목적지로
+    삼는 것은 뜻이 없다 — 거기 가려면 어차피 이 층 계단을 타야 한다.
+    """
+    here = _items(_load_landmarks(session))
+    if session.building_id is None:
+        return here
+
+    try:
+        from app.database import SessionLocal
+        from app.floor.models import Floor
+        from app.landmark.models import Landmark as LandmarkRow
+
+        db = SessionLocal()
+        try:
+            floors = {
+                f.id: f.floor for f in db.query(Floor)
+                .filter(Floor.building_id == session.building_id,
+                        Floor.id != session.floor_id).all()
+            }
+            if not floors:
+                return here
+            rows = (db.query(LandmarkRow)
+                    .filter(LandmarkRow.floor_id.in_(list(floors))).all())
+            others = [
+                {"id": lm.id, "name": f"{lm.name} ({floors[lm.floor_id]}층)"}
+                for lm in sorted(rows, key=lambda r: (floors.get(r.floor_id) or 0,
+                                                      r.name or ""))
+                if lm.name and lm.floor_id in floors
+            ]
+        finally:
+            db.close()
+    except Exception as e:
+        # 목록이 좁아질 뿐 안내는 그대로 돈다. 여기서 막지 않는다.
+        print(f"[nav] 건물 목적지 조회 실패: {e}")
+        return here
+
+    return here + others
+
+
 # ---------------------------------------------------------------------------
 # 앱 → 서버 이벤트
 # ---------------------------------------------------------------------------
@@ -472,8 +559,8 @@ def on_beacons(session: NavSession, data: dict) -> list[dict]:
     때문이다. 게다가 누적 맵을 반복 전송하면 칼만 필터가 그 반복값을 새 측정으로
     받아들여 톱니 파형을 만든다.
     """
-    located = False
     samples: list[tuple[str, float, float]] = []
+    seen_majors: set[int] = set()
     for b in data.get("beacons") or []:
         if not isinstance(b, dict):
             continue
@@ -485,8 +572,9 @@ def on_beacons(session: NavSession, data: dict) -> list[dict]:
         if key is None:
             continue
 
-        if _locate(session, major, b.get("mac")):
-            located = True
+        _locate_building(session, b.get("mac"))
+        if isinstance(major, int):
+            seen_majors.add(major)
         session.beacon_ids[key] = {"major": major, "minor": minor}
         pipe = session.filters.setdefault(key, RssiFilterPipeline())
         filtered = pipe.filter(float(rssi))
@@ -495,6 +583,10 @@ def on_beacons(session: NavSession, data: dict) -> list[dict]:
         if session.recorder is not None:
             session.recorder.sample(
                 monitor_mirror.display_key(session.floor_id, key), float(rssi), filtered)
+
+    # 층은 **필터를 다 먹인 뒤에** 정한다. "가장 센 비콘"을 보려면 이번 패킷까지
+    # 반영돼 있어야 하기 때문이다.
+    located = _locate_floor(session, seen_majors)
 
     # `/monitor` 로 넘길 것. **판정(evaluate)보다 먼저 만들지 않는다** — 아래에서
     # 인덱스가 옮겨갈 수 있고, 그 전 상태를 그리면 화면이 한 박자 늦는다.
@@ -509,7 +601,19 @@ def on_beacons(session: NavSession, data: dict) -> list[dict]:
     # 층 이동이 끝났나. **목적지 목록보다 먼저 본다** — 층이 바뀐 그 순간에
     # `destination` 은 아직 살아 있으므로 아래 목록 안내와 부딪히지 않지만,
     # 순서를 명확히 해두는 편이 읽기 쉽다.
-    if located and session.awaiting_floor is not None:
+    #
+    # **`located` 를 조건에 걸면 안 된다.** 그것은 "층이 방금 바뀌었다"는 뜻이라
+    # 층을 옮기는 동안 딱 한 번만 True 다. 그런데 `_maybe_resume` 안에는 여러
+    # 패킷에 걸쳐 봐야 하는 것이 둘 있다.
+    #
+    #     엉뚱한 층에 내렸나   floor_since 로부터 WRONG_FLOOR_DWELL_MS 를 재야 한다
+    #     구간을 못 걸었나     신호가 더 잡히면 다시 시도해야 한다
+    #
+    # 층이 바뀐 그 순간에는 머문 시간이 0 이라 첫째는 언제나 "아직 지나가는 중"이
+    # 되고, 둘째는 되돌린 뒤 다시 불릴 일이 없었다. 둘 다 **영영 일어나지 않는
+    # 코드**였다. 기다리는 중이면 매 패킷마다 본다 — 조건이 안 맞으면 `_maybe_resume`
+    # 이 곧장 빈 목록을 돌려주므로 비용도 없다.
+    if session.awaiting_floor is not None:
         out_msgs.extend(_maybe_resume(session))
 
     if located and session.destination is None:
@@ -525,7 +629,7 @@ def on_beacons(session: NavSession, data: dict) -> list[dict]:
             out_msgs.append(out("list", "listening",
                                 utterance="목적지를 말씀해 주세요.",
                                 listen_after=True,
-                                screen=screen_of("목적지", _items(landmarks))))
+                                screen=screen_of("목적지", _building_items(session))))
 
     transition = session.tracker.evaluate()
     if transition is not None:
@@ -549,55 +653,106 @@ def on_beacons(session: NavSession, data: dict) -> list[dict]:
     return out_msgs
 
 
-def _locate(session: NavSession, major, mac) -> bool:
-    """지금 어느 건물 몇 층인지 정한다. **층이 실제로 바뀌었을 때만 True.**
+def _locate_building(session: NavSession, mac) -> None:
+    """건물을 정한다. **MAC 으로 한 번만.**
 
-        건물   MAC 으로 한 번만 (major 가 건물을 안 담으므로)
-        층     그 건물 안에서 major 로 — 첫 층도 포함해서 언제나
+    major 는 층 번호만 담고 건물을 안 담는다 — A동 4층과 B동 4층이 둘 다
+    `major=104` 다. 그래서 건물은 MAC 으로 가리고, 한 번 정해지면 다시 안 본다.
+    같은 건물 안에서는 major/minor 가 유일하므로 그 뒤로 모호할 일이 없다.
 
-    건물이 정해지기 전에는 층도 정하지 않는다. major 만으로 층을 고르면 다른
-    건물의 같은 층을 집을 수 있고, 그러면 목적지 목록과 경로가 통째로 남의 건물
-    것이 된다 — 사용자가 알아챌 방법이 없다.
+    (건물까지 신호에 담으려면 iBeacon UUID 를 건물마다 다르게 구우면 된다.
+     그러면 MAC 이 아예 필요 없어진다. 지금은 UUID 가 전 비콘 공통이라 MAC 을 쓴다)
+    """
+    if session.building_id is not None or not mac:
+        return
+    building_id = building_from_mac(mac)
+    if building_id is None:
+        return
+    session.building_id = building_id
+    session.building_at = _now_ms()
+    print(f"[nav] {session.id} 건물 확정 — {building_id} (MAC {mac})")
 
-    ── 층을 정하는 길은 하나여야 한다 ────────────────────────────
 
-    예전에는 **첫 층만 MAC 으로** 정하고 그 뒤로는 major 로 따라갔다. 길이 둘이라
-    `session.major` 가 첫 분기에서 안 채워졌고, 두 번째 분기는 층이 같으면 저장
-    전에 빠져나가서 **출발 층에 있는 내내 `session.major` 가 None 이었다.**
+def _locate_floor(session: NavSession, seen_majors: set[int]) -> bool:
+    """지금 몇 층인지 정한다. **층이 실제로 바뀌었을 때만 True.**
 
-        첫 비콘 뒤 :  floor_id = f-1   major = None
-        같은 층 계속:  floor_id = f-1   major = None
+    ── 한 패킷으로는 안 바뀐다 ───────────────────────────────────
 
-    출발점을 고를 때 층을 거르는 데 이 값을 쓰므로(`strongest_beacon_key`),
-    None 이면 거르지 않고 지나간다. 계단 근처에서 위층 신호가 새어 들어오면
-    그것이 출발 비콘으로 뽑힌다.
+    예전에는 들어오는 비콘의 major 를 **언제나 즉시** 따라갔다. 그런데 이 함수는
+    비콘 하나하나마다 불리고 앱은 스캔될 때마다 한 개씩 보내므로, 두 층 신호가
+    번갈아 잡히는 자리(계단·엘리베이터 앞)에서는 **매 패킷마다 층이 뒤집혔다.**
 
-    지금은 MAC 과 major 가 같은 메시지에 함께 오므로(`NavClient.sendBeacon` —
-    major/minor 는 필수, mac 만 nullable) 한 번에 둘 다 정해진다.
+        층 f-3 → f-4 (major 104)
+        층 f-4 → f-3 (major 103)
+        층 f-3 → f-4 (major 104)   …
+
+    뒤집힐 때마다 `located` 가 True 라, 목적지가 정해지기 전이면 "목적지를 말씀해
+    주세요" + 목록이 계속 다시 나갔다. 폰은 그때마다 마이크를 새로 열어서
+    **사용자가 말을 시작할 수가 없었다.**
+
+    반대로 한 번 정하고 아예 잠가버리면 **경로 없이 층을 옮겼을 때 서버가 모른다.**
+    3층에 서 있는데 4층 목록을 주고 4층 경로를 만든다.
+
+    그래서 후보를 두고 **유지되는지 본다.**
+
+        지금 층 신호가 섞여 들어온다  →  후보가 매번 깨진다  →  안 바뀐다
+        지금 층 신호가 끊겼다        →  후보가 유지된다     →  FLOOR_SWITCH_DWELL_MS 뒤 바뀐다
+
+    엘리베이터 앞에 서 있으면 지금 층이 계속 들리므로 안 바뀌고, 실제로 타고
+    올라가면 지금 층이 끊기므로 바뀐다. 같은 장치가 두 경우를 다 가린다.
+
+    ── 최초 확정만 다르다 ────────────────────────────────────────
+
+        최초    필터를 FLOOR_SETTLE_MS 만큼 채운 뒤 **가장 센 비콘**의 major
+        이후    후보 major 가 FLOOR_SWITCH_DWELL_MS 동안 유지되면 전환
+
+    이후 판정에서 "가장 센 것"을 쓰면 안 된다. **칼만 필터는 신호가 끊겨도 값을
+    잃지 않아서**, 3층에 막 내린 순간에도 20초 전 4층 비콘이 여전히 제일 세다.
+    그러면 층이 바뀐 것을 영영 못 알아채고 안내가 멈춘다.
     """
     if session.building_id is None:
-        if not mac:
-            return False
-        building_id = building_from_mac(mac)
-        if building_id is None:
-            return False
-        session.building_id = building_id
-        print(f"[nav] {session.id} 건물 확정 — {building_id} (MAC {mac})")
+        return False
 
-    if not isinstance(major, int) or major == session.major:
+    if session.floor_id is None:
+        # 최초 확정 — 잠깐 모았다가 가장 센 비콘으로 정한다
+        if _now_ms() - session.building_at < FLOOR_SETTLE_MS:
+            return False
+        key = navigation.strongest_beacon_key(session.filters)
+        major = navigation.key_major(key) if key else None
+        why = f"가장 센 비콘 {key}"
+    else:
+        # 지금 층이 이번 패킷에 섞여 있으면 아직 여기다 — 후보를 깬다.
+        if session.major in seen_majors:
+            session.floor_cand = None
+            return False
+        cand = next((m for m in sorted(seen_majors) if m != session.major), None)
+        if cand is None:
+            return False
+        if session.floor_cand != cand:
+            session.floor_cand = cand
+            session.floor_cand_at = _now_ms()
+            return False
+        held = _now_ms() - session.floor_cand_at
+        if held < FLOOR_SWITCH_DWELL_MS:
+            return False
+        session.floor_cand = None
+        major = cand
+        why = f"{held / 1000:.1f}초 유지"
+
+    if major is None:
         return False
     floor_id = floor_in_building(session.building_id, major)
     if floor_id is None:
         return False
 
     # **층이 그대로여도 major 는 저장한다.** 아래에서 빠져나가기 전에 한다 —
-    # 이 값이 비어 있으면 출발점을 고를 때 층을 못 거른다.
+    # 이 값이 비어 있으면 출발점을 고를 때 층을 못 거른다(`strongest_beacon_key`).
     session.major = major
     if floor_id == session.floor_id:
         return False
 
     where = session.floor_id or "?"
-    print(f"[nav] {session.id} 층 {where} → {floor_id} (major {major})")
+    print(f"[nav] {session.id} 층 {where} → {floor_id} (major {major}, {why})")
     session.floor_id = floor_id
     session.floor_since = _now_ms()
     session.landmarks = []      # 목적지 목록을 새 층 것으로 다시 읽는다
@@ -976,7 +1131,7 @@ def _maybe_resume(session: NavSession) -> list[dict]:
     속도는 사람마다 다르고, 엘리베이터는 몇 층을 더 돌기도 한다. 목표 층 신호가
     들어온 것보다 확실한 증거는 없다.
 
-    `_locate()` 가 major 로 층을 이미 따라가고 있어서(펌웨어에 `major = 100 + 층`
+    `_locate_floor()` 가 major 로 층을 이미 따라가고 있어서(펌웨어에 `major = 100 + 층`
     이 새겨져 있다) 여기서는 그 결과가 기다리던 층인지만 확인하면 된다.
 
     ── 다른 층에 내렸으면 ────────────────────────────────────────
@@ -984,6 +1139,18 @@ def _maybe_resume(session: NavSession) -> list[dict]:
     엘리베이터에서 층을 잘못 눌렀거나 계단을 지나쳤을 수 있다. 그때는 다시
     구간을 쪼갠다 — 지금 층에서 최종 목적지까지 새로 계획하는 것이라, 3층에
     내렸으면 3층에서 다시 4층으로 가는 안내가 나온다.
+
+    ── 다음 구간을 못 만들면 되돌린다 ────────────────────────────
+
+    층은 바뀌었는데 그 층 비콘이 아직 제대로 안 잡히면 `_start_leg` 이 실패한다.
+    그때 `_start_leg` 은 `destination` 을 지우고 `routeFailed`(`listenAfter=true`)를
+    내보내는데, **첫 구간이라면 맞지만 여기서는 틀리다** — 사용자는 목적지를 다시
+    말할 일이 없고 그냥 엘리베이터에서 내리는 중이다. 실제로 이것 때문에 안내가
+    통째로 처음으로 돌아갔다.
+
+    그래서 여기서는 실패를 삼키고 상태를 되돌린 뒤 계속 기다린다. 신호가 더
+    잡히면 다음 패킷에서 다시 시도한다. 앱에는 아무것도 안 나간다 — 층을 옮기는
+    동안 조용한 것이 정상이다.
     """
     want = session.awaiting_floor
     if want is None or session.floor_id is None:
@@ -1002,13 +1169,23 @@ def _maybe_resume(session: NavSession) -> list[dict]:
         session.awaiting_floor = None
         return _start_route(session, dest)
 
+    dest = session.destination
     session.awaiting_floor = None
     session.leg_index += 1
     leg = session.leg
     if leg is None:
         return []
     print(f"[nav] {session.id} 층 이동 완료 — {leg.dest_name} 구간 시작")
-    return _start_leg(session)
+
+    msgs = _start_leg(session)
+    if any(m.get("event") in ("routeFailed", "error") for m in msgs):
+        # 아직 이 층 신호가 부족하다. 되돌리고 계속 기다린다.
+        print(f"[nav] {session.id} 아직 {leg.dest_name} 구간을 못 걺 — 신호를 더 기다린다")
+        session.leg_index -= 1
+        session.awaiting_floor = want
+        session.destination = dest      # _start_leg 이 지웠을 수 있다
+        return []
+    return msgs
 
 
 def _seed_index(session: NavSession, keys: list[str]) -> None:
@@ -1043,7 +1220,7 @@ def on_list(session: NavSession, _data: dict) -> list[dict]:
                     utterance="아직 위치를 확인하고 있습니다. 잠시만 기다려 주세요.",
                     listen_after=False)]
     return [out("list", "listening", utterance=None,
-                screen=screen_of("목적지", _items(landmarks)))]
+                screen=screen_of("목적지", _building_items(session)))]
 
 
 def on_cancel(session: NavSession, _data: dict) -> list[dict]:

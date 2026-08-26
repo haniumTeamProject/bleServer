@@ -10,7 +10,7 @@ class FloorResponse(CamelModel):
     building_id: str
     floor: int
     major: int
-    status: str            # 조회 시점에 계산 (floorplan/mask/scale/beacon 으로부터)
+    status: str            # 조회 시점에 계산 (floorplan/mask/scale/beacon/connector 로부터)
     scale_m_per_px: float | None = None
 
 

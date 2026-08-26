@@ -72,7 +72,12 @@ def delete_building(db: Session, building_id: str) -> None:
     폰이 그중 하나를 잡는 바람에 목적지가 3개만 내려가는 것을 한참 뒤에 알았다.
 
     정리는 `_purge_floor` 하나로 모은다 — 표가 늘 때 고칠 곳이 둘이면 또 갈라진다.
+
+    **연결자는 층이 아니라 건물에 달려 있다.** 엘리베이터 하나가 여러 층을
+    운행하므로 `connectors.building_id` 다. 층마다 도는 `_purge_floor` 는 그 층의
+    좌표(`connector_positions`)까지만 지우니, 연결자 자체는 여기서 지운다.
     """
+    from app.connector.models import Connector, ConnectorPosition
     from app.floor.models import Floor
     from app.floor.service import _purge_floor
 
@@ -80,6 +85,14 @@ def delete_building(db: Session, building_id: str) -> None:
 
     for floor_id, in db.query(Floor.id).filter(Floor.building_id == building_id).all():
         _purge_floor(db, floor_id)
+
+    conn_ids = [c for c, in db.query(Connector.id)
+                .filter(Connector.building_id == building_id).all()]
+    if conn_ids:
+        db.query(ConnectorPosition).filter(
+            ConnectorPosition.connector_id.in_(conn_ids)).delete(synchronize_session=False)
+        db.query(Connector).filter(
+            Connector.building_id == building_id).delete(synchronize_session=False)
 
     db.delete(building)
     db.commit()

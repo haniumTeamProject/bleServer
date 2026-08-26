@@ -161,9 +161,9 @@ def main() -> int:
     landmarks = [
         {
             "name": lm.get("name") or lm["id"],
-            # 파일에는 분류가 없다(이름뿐). 지어내지 않고 비워둔다 —
+            # 파일에는 분류가 없다(이름과 isConnector 뿐). 지어내지 않고 비워둔다 —
             # 관리자웹에서 나중에 채우면 된다.
-            "category": "미분류",
+            "category": "수직연결자" if lm.get("isConnector") else "미분류",
             "x": round(lm["x"] * k, 2),
             "y": round(lm["y"] * k, 2),
             "sourceUid": f"seed-{lm['id']}",

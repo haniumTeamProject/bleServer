@@ -123,9 +123,10 @@ def main() -> int:
     c.post(f"/api/floors/{fid}/landmarks",
            json={"name": "407호", "category": "강의실", "x": 94, "y": 1130})
 
-    # 계단·엘베도 그냥 목적지다. 연결자 테이블은 없앴다(cac4633).
-    c.post(f"/api/floors/{fid}/landmarks",
-           json={"name": "1번 엘리베이터", "category": "기타", "x": 500, "y": 300})
+    conn = c.post(f"/api/buildings/{b['id']}/connectors",
+                  json={"name": "1번 엘리베이터", "type": "elevator", "floors": [4]}).json()
+    c.put(f"/api/buildings/{b['id']}/connectors/{conn['id']}/positions/{fid}",
+          json={"x": 500, "y": 300})
 
     p = c.get(f"/map-db/floors/{fid}/project").json()
 
@@ -148,28 +149,27 @@ def main() -> int:
           "축척과 마스크 폭을 같이 준다", f'{p.get("scaleMPerPx")} / {p.get("maskW")}')
     check(p.get("maskDataUrl") == PNG_1PX, "마스크는 PNG 그대로 (바이트 변환은 브라우저)")
 
-    # (2) 계단·엘베도 목적지로 들어가고, 표시가 붙는가
-    #
-    # `isConnector` 는 저장된 값이 아니라 **이름에서 가린 값**이다
-    # (`map_source.connector_kind`). `/monitor` 가 지도 색을 달리 칠하는 데 쓴다.
+    # (2) 연결자가 목적지에 들어가는가
     names = {lm["name"]: lm for lm in p["landmarks"]}
     check("407호" in names, "랜드마크가 들어간다", "407호")
-    check("1번 엘리베이터" in names, "엘베도 목적지로 들어간다", "엘리베이터")
+    check("1번 엘리베이터" in names, "연결자도 목적지로 들어간다", "엘리베이터")
     check(names.get("1번 엘리베이터", {}).get("isConnector") is True,
-          "이름으로 층 잇는 지점을 가린다", "isConnector=True")
+          "연결자에는 표시가 붙는다", "isConnector=True")
     check(names.get("1번 엘리베이터", {}).get("x") == 500,
-          "좌표는 랜드마크 좌표 그대로", "500")
+          "연결자 좌표는 그 층의 배치 좌표", "500")
     check(names.get("407호", {}).get("isConnector") is False,
-          "방 번호는 표시가 없다")
+          "일반 랜드마크는 표시가 없다")
 
-    # 다른 층 목적지가 섞이면 안 된다
+    # 다른 층의 연결자 좌표가 섞이면 안 된다
     f5 = c.post(f"/api/buildings/{b['id']}/floors", json={"floor": 5}).json()
-    c.post(f"/api/floors/{f5['id']}/landmarks",
-           json={"name": "2번 엘리베이터", "category": "기타", "x": 900, "y": 900})
+    c.post(f"/api/buildings/{b['id']}/connectors",
+           json={"name": "2번 엘리베이터", "type": "elevator", "floors": [5]})
+    c.put(f"/api/buildings/{b['id']}/connectors/{conn['id']}/positions/{f5['id']}",
+          json={"x": 900, "y": 900})
     p2 = c.get(f"/map-db/floors/{fid}/project").json()
     lifts = [lm for lm in p2["landmarks"] if lm["isConnector"]]
     check(len(lifts) == 1 and lifts[0]["x"] == 500,
-          "다른 층 목적지가 섞이지 않는다", f"{len(lifts)}개")
+          "다른 층의 연결자 좌표가 섞이지 않는다", f"{len(lifts)}개")
 
     # ── 쓰기 경로가 없는가 ────────────────────────────────────
     print("\n── 읽기 전용 ──")
