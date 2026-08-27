@@ -46,6 +46,8 @@ from app.landmark.models import Landmark  # noqa: E402
 from app.mask.models import FloorMask  # noqa: E402
 from app.nav.db_map_source import DESIGN_W  # noqa: E402
 from app.nav.map_source import MapDataError  # noqa: E402
+from app.ws.navigation_ws import FLOOR_SWITCH_DWELL_MS  # noqa: E402
+from app.ws.rssi_filter import RssiFilterPipeline  # noqa: E402
 from tests.seed_from_project import gray_alpha_png  # noqa: E402
 
 OK, BAD = "✓", "✗"
@@ -168,11 +170,22 @@ def main() -> int:  # noqa: C901
     def hold_floor(session):
         """층 전환 유지시간(FLOOR_SWITCH_DWELL_MS)을 시계 되감기로 채운다.
 
-        서버는 새 층 후보가 **혼자** 이만큼 유지돼야 층을 바꾼다. 엘리베이터 앞에
-        서 있기만 해도 위아래 층 신호가 새는데, 한 패킷만 보고 바꾸면 거기 서
-        있는 것만으로 다음 구간이 시작되기 때문이다.
+        서버는 새 층이 **여유를 두고 이기는** 상태가 이만큼 이어져야 층을 바꾼다.
+        엘리베이터 앞에 서 있기만 해도 위아래 층 신호가 새는데, 한 패킷만 보고
+        바꾸면 거기 서 있는 것만으로 다음 구간이 시작되기 때문이다.
         """
         session.floor_cand_at -= nav_ws.FLOOR_SWITCH_DWELL_MS
+
+    def leave_floor(session, major):
+        """그 층 비콘이 더는 안 들리는 상태로 만든다.
+
+        엘리베이터 문이 닫히면 실제로 이렇게 된다. 필터값은 그대로 남아 있으므로
+        (칼만은 시간이 지난다고 값을 안 깎는다) **마지막으로 들은 시각**만 되감는다.
+        서버가 그 유령값을 걷어내는지 여기서 갈린다.
+        """
+        for k in session.last_seen:
+            if navmod.key_major(k) == major:
+                session.last_seen[k] -= nav_ws.BEACON_STALE_MS + 1
 
     # ── 구간 쪼개기 ───────────────────────────────────────────
     print("\n── 구간 쪼개기 (app/nav/legs.py) ──")
@@ -267,10 +280,11 @@ def main() -> int:  # noqa: C901
 
     # 4층 도착
     print("\n── 4층에 내렸을 때 ──")
+    leave_floor(s, MAJ1)             # 문이 닫혀 1층이 안 들린다
     feed(s, MAJ4, [(26, -45)])       # 후보가 선다 — 아직 안 바뀐다
     check(s.floor_id == F1, "한 패킷으로는 층이 안 바뀐다", s.floor_id or "?")
     hold_floor(s)
-    r = feed(s, MAJ4, [(26, -45)])   # 혼자 유지됐으니 전환
+    r = feed(s, MAJ4, [(26, -45)])   # 계속 이겼으니 전환
     check(s.floor_id == F4, "4층으로 판정", s.floor_id or "?")
     check(s.leg_index == 1, "다음 구간으로 넘어갔다", f"구간 {s.leg_index + 1}")
     check(s.awaiting_floor is None, "더 기다리지 않는다")
@@ -298,27 +312,47 @@ def main() -> int:  # noqa: C901
 
     # ── 엘리베이터 앞에 서 있기만 할 때 ───────────────────────
     #
-    # 문 앞에 서 있어도 위아래 층 신호가 샌다. 그것만으로 층이 바뀌면 다음 구간이
-    # 먼저 시작되고, 그 층 비콘이 아직 안 잡혀 경로 생성이 실패하면서 안내가
-    # 통째로 처음으로 돌아갔다. 지금 층 신호가 한 번이라도 섞이면 후보를 깬다.
-    print("\n── 엘리베이터 앞 (섞여 들어오는 신호) ──")
+    # 문 앞에 서 있어도 위아래 층 신호가 샌다. **들리기만 하면 안 된다** — 앱은
+    # -90dB 유령 신호까지 전부 올리므로 그것만으로 층이 바뀌거나, 반대로 그것
+    # 때문에 전환이 영영 막힌다. 실측에서 33dB 차이를 두고도 20초가 걸렸다.
+    print("\n── 엘리베이터 앞 (약하게 새는 신호) ──")
     e = NavSession()
     feed(e, MAJ1, [(26, -45)], mac=MAC1)
     check(e.floor_id == F1, "1층에서 시작", e.floor_id or "?")
 
-    feed(e, MAJ4, [(26, -80)])       # 위층이 약하게 샌다 — 후보가 선다
-    check(e.floor_cand == MAJ4, "새 층이 후보로 선다", str(e.floor_cand))
-    hold_floor(e)
-    feed(e, MAJ1, [(26, -45)])       # 지금 층이 다시 들린다 — 후보가 깨진다
-    check(e.floor_cand is None, "지금 층 신호가 섞이면 후보가 깨진다")
+    feed(e, MAJ4, [(26, -80)])       # 위층이 슬래브 너머로 약하게
+    check(e.floor_cand is None, "약한 신호로는 후보가 안 선다", str(e.floor_cand))
+    feed(e, MAJ4, [(26, -80)])
+    feed(e, MAJ4, [(26, -80)])
     check(e.floor_id == F1, "서 있기만 해서는 층이 안 바뀐다", e.floor_id or "?")
 
-    feed(e, MAJ4, [(26, -80)])       # 다시 후보. 시각도 다시 잡힌다
+    # 여유(FLOOR_WIN_DB)를 못 넘는 차이도 마찬가지다
+    feed(e, MAJ4, [(27, -42)])       # -45 를 3dB 이김 — 모자라다
+    check(e.floor_cand is None, "여유를 못 넘으면 후보가 안 선다", str(e.floor_cand))
+
+    # 문이 닫히고 1층이 끊긴다 — 겨룰 상대가 없으면 곧바로 후보가 선다
+    leave_floor(e, MAJ1)
     feed(e, MAJ4, [(26, -80)])
-    check(e.floor_id == F1, "유지시간을 못 채우면 그대로", e.floor_id or "?")
+    check(e.floor_cand == MAJ4, "지금 층이 끊기면 약해도 후보가 선다", str(e.floor_cand))
+    check(e.floor_id == F1, "그래도 유지시간은 채워야 한다", e.floor_id or "?")
     hold_floor(e)
-    feed(e, MAJ4, [(26, -50)])       # 지금 층이 끊긴 채 유지됐다 — 전환
-    check(e.floor_id == F4, "지금 층이 끊긴 채 유지되면 바뀐다", e.floor_id or "?")
+    feed(e, MAJ4, [(26, -80)])
+    check(e.floor_id == F4, "유지되면 바뀐다", e.floor_id or "?")
+
+    # ── 세게 이기면 유령 신호가 있어도 넘어간다 ────────────────
+    #
+    # 이게 실측에서 20초 걸리던 자리다. 내려서 나오면 새 층이 같은 방에 있고
+    # 옛 층은 슬래브 너머라, 신호가 계속 들어와도 세기로 갈린다.
+    print("\n── 유령 신호가 있어도 ──")
+    g = NavSession()
+    feed(g, MAJ1, [(26, -45)], mac=MAC1)
+    feed(g, MAJ1, [(27, -79)])       # 1층이 계속 들린다. 다만 약해졌다
+    g.last_seen[f"{MAJ1}-26"] -= nav_ws.BEACON_STALE_MS + 1   # 가까운 것만 끊김
+    feed(g, MAJ4, [(26, -46)])       # 새 층이 같은 방 — 33dB 차
+    check(g.floor_cand == MAJ4, "세게 이기면 후보가 선다", str(g.floor_cand))
+    hold_floor(g)
+    feed(g, MAJ4, [(26, -46)])
+    check(g.floor_id == F4, "옛 층이 계속 들려도 넘어간다", g.floor_id or "?")
 
     # ── 층을 정하기 전에는 목적지를 안 묻는다 ─────────────────
     #
@@ -380,6 +414,7 @@ def main() -> int:  # noqa: C901
 
     navmod.plan_route = boom
     try:
+        leave_floor(b, MAJ1)
         feed(b, MAJ4, [(26, -45)])
         hold_floor(b)
         out_msgs = feed(b, MAJ4, [(26, -45)])
@@ -402,12 +437,10 @@ def main() -> int:  # noqa: C901
 
     # ── 엉뚱한 층에 내렸을 때 ─────────────────────────────────
     #
-    # 엘리베이터에서 층을 잘못 눌렀거나 계단을 지나쳤을 수 있다. 그때는 지금 층에서
-    # 최종 목적지까지 다시 계획한다.
-    #
-    # 이 갈래는 `floor_since` 로부터 WRONG_FLOOR_DWELL_MS 를 재야 하므로 **여러
-    # 패킷에 걸쳐** 봐야 한다. 예전에는 층이 막 바뀐 순간에만 `_maybe_resume` 을
-    # 불러서 머문 시간이 늘 0 이었고, 그래서 이 코드가 한 번도 안 돌았다.
+    # 기다리던 층이 아닌 곳에 내리면 거기서 다시 계획할 수도 있다. 그런데 지금은
+    # **꺼 두었다**(`REPLAN_ON_WRONG_FLOOR`). 엘리베이터가 지나치는 층을 도착으로
+    # 읽으면 아직 타고 있는데 경로가 새로 짜이고, 그 층 비콘이 제대로 안 잡혀
+    # 대개 실패한다. 꺼도 갇히지 않는다 — 목표 층으로 가면 이어진다.
     print("\n── 엉뚱한 층에 내렸을 때 ──")
     x = NavSession()
     feed(x, MAJ1, [(26, -45)], mac=MAC1)
@@ -417,25 +450,185 @@ def main() -> int:  # noqa: C901
     x.leg_index = 0
 
     # 3층에 내렸다 — 기다리던 4층이 아니다
+    leave_floor(x, MAJ1)
     feed(x, MAJ3, [(26, -45)])
     hold_floor(x)
     feed(x, MAJ3, [(26, -45)])
-    check(x.floor_id == F3, "3층으로 판정", x.floor_id or "?")
-    check(x.awaiting_floor == F4, "머무는 동안은 아직 기다린다",
-          x.awaiting_floor or "안 기다림")
+    check(x.floor_id == F3, "3층으로 판정은 한다", x.floor_id or "?")
 
-    # 계속 머문다 — 지나가는 중이 아니라 정말 내린 것이다
     x.floor_since -= nav_ws.WRONG_FLOOR_DWELL_MS
     r = feed(x, MAJ3, [(26, -45)])
-    check(x.awaiting_floor is None, "머물렀으면 기다리기를 접는다",
+    check(x.awaiting_floor == F4, "그래도 4층을 계속 기다린다",
+          x.awaiting_floor or "안 기다림")
+    check(x.leg_index == 0, "구간을 새로 짜지 않는다", f"구간 {x.leg_index + 1}")
+    check(not any(m.get("event") in ("start", "routeFailed") for m in r),
+          "앱에 아무것도 안 나간다", str([m.get("event") for m in r]))
+
+    # 켜면 그 층에서 다시 계획한다
+    nav_ws.REPLAN_ON_WRONG_FLOOR = True
+    try:
+        x.floor_since -= nav_ws.WRONG_FLOOR_DWELL_MS
+        r = feed(x, MAJ3, [(26, -45)])
+    finally:
+        nav_ws.REPLAN_ON_WRONG_FLOOR = False
+    check(x.awaiting_floor is None, "켜면 기다리기를 접는다",
           x.awaiting_floor or "접었다")
     check(x.destination is not None and x.destination.name == "407",
           "최종 목적지는 그대로", x.destination.name if x.destination else "없음")
     check(bool(x.legs) and x.legs[0].floor_id == F3,
           "지금 층에서 다시 계획한다",
           " → ".join(l.dest_name for l in x.legs) if x.legs else "없음")
-    check(any(m.get("event") in ("start", "routeFailed") for m in r),
-          "앱에 알린다", str([m.get("event") for m in r]))
+
+    # ── 실측 로그 재생 (2026-08-26) ───────────────────────────
+    #
+    # 그날 로그를 그대로 되돌린다. 5초마다 찍힌 필터값이고, 3층(103)에서
+    # 엘리베이터로 4층(104)에 내린 구간이다. **그때는 전환에 20초가 걸렸다.**
+    #
+    #     t=25  103-1:-77  104-1:-62   ← 문 열림. 15dB 차인데도 안 바뀜
+    #     t=40  103-1:-79  104-1:-46   ← 33dB 차. 그래도 안 바뀜
+    #     t=45+                        ← 여기서야 바뀜
+    #
+    # 옛 규칙은 103 패킷이 한 번이라도 오면 시계를 0으로 돌려서, 3초짜리 깨끗한
+    # 창이 우연히 열릴 때까지 기다린 것이다. 세기로 겨루면 문 열리자마자 갈린다.
+    print("\n── 실측 로그 재생 (엘리베이터 5층→4층) ──")
+
+    def at(session, now, levels):
+        """그 시점의 필터값을 그대로 심는다. 칼만을 거치지 않고 결과만 본다."""
+        for key, v in levels.items():
+            pipe = session.filters.setdefault(key, RssiFilterPipeline())
+            pipe.x, pipe.initialized = float(v), True
+            session.last_seen[key] = now
+        return nav_ws._locate_floor(session, now)
+
+    L = NavSession()
+    L.building_id, L.floor_id, L.major = "b", F1, MAJ1
+    t = 1_000_000
+
+    # 엘리베이터 앞. 지금 층이 훨씬 세다
+    at(L, t, {f"{MAJ1}-1": -60, f"{MAJ4}-1": -85, f"{MAJ4}-2": -86})
+    check(L.floor_cand is None, "엘베 앞에서는 후보가 안 선다", str(L.floor_cand))
+
+    # 문이 닫힌다. 103 만 약해지고 104 는 그대로 약하다
+    at(L, t + 15_000, {f"{MAJ1}-1": -75})
+    at(L, t + 20_000, {f"{MAJ1}-1": -77})
+    check(L.floor_id == F1, "타고 가는 동안은 그대로", L.floor_id or "?")
+
+    # 문이 열린다 — 104-1 이 -62. 15dB 차
+    moved = at(L, t + 25_000, {f"{MAJ1}-1": -77, f"{MAJ4}-1": -62,
+                               f"{MAJ4}-2": -79, f"{MAJ4}-3": -86})
+    check(L.floor_cand == MAJ4, "문 열리는 즉시 후보가 선다", str(L.floor_cand))
+    check(not moved, "그래도 유지시간은 채운다")
+
+    # 3초 뒤. 103 은 여전히 들리지만 세기로 진다
+    moved = at(L, t + 28_500, {f"{MAJ1}-1": -76, f"{MAJ4}-1": -61})
+    check(moved and L.floor_id == F4, "3.5초 만에 4층으로", L.floor_id or "?")
+
+    took = 28_500 - 25_000
+    check(took <= FLOOR_SWITCH_DWELL_MS + 1_000,
+          "옛 규칙의 20초가 유지시간만큼으로 줄었다", f"{took / 1000:.1f}초")
+
+    # ── 안내를 언제 말하나 ────────────────────────────────────
+    #
+    # 안내는 비콘 하나를 통째로 소유한다. 그래서 비콘에 닿는 순간 그 칸의 말이 전부
+    # 나가고, 정작 회전은 20m 뒤일 수 있다. **어느 비콘이 무엇을 말할지는 그대로
+    # 두고, 그 안에서 언제 입을 여는지만** 옮기는 것이 늦춰 말하기다.
+    print("\n── 안내 발화 시점 ──")
+    from app.ws import handler as h
+
+    turn20 = nav_ws.SpokenCue(text="조금 뒤 오른쪽으로 꺾으세요.",
+                              base="오른쪽으로 꺾으세요.", lead_m=20.0, kind="turn")
+    turn3 = nav_ws.SpokenCue(text="왼쪽으로 꺾으세요.",
+                             base="왼쪽으로 꺾으세요.", lead_m=3.0, kind="turn")
+    straight = nav_ws.SpokenCue(text="계속 직진하세요.", base="계속 직진하세요.",
+                                lead_m=18.0, kind="straight")
+
+    keep = h._cue_pacing
+    try:
+        # 기본 모드 — 지금과 완전히 같아야 한다
+        h._cue_pacing = {"enabled": False}
+        say, later = nav_ws._split_cues(NavSession(), [turn20, turn3, straight], 0)
+        check(say == [turn20.text, turn3.text, straight.text] and not later,
+              "기본 모드는 전부 그 자리에서 말한다", f"{len(say)}개 · 미룸 {len(later)}개")
+
+        # 늦춤 모드
+        h._cue_pacing = {"enabled": True, "speed_mps": 1.0, "speak_at_m": 5.0}
+        say, later = nav_ws._split_cues(NavSession(), [turn20, turn3, straight], 0)
+        check(turn3.text in say, "이미 가까운 것은 안 미룬다", str(say))
+        check(straight.text in say, "직진은 안 미룬다 — 지점을 가리키는 말이 아니다")
+        check(turn20.text not in say, "먼 회전은 그 자리에서 말하지 않는다")
+        check(len(later) == 1, "미룬 것이 하나", f"{len(later)}개")
+
+        at, text = later[0]
+        check(at == 15_000, "20m 를 1m/s 로 걸어 5m 남을 때까지", f"{at / 1000:.0f}초 뒤")
+        check(text == "오른쪽으로 꺾으세요.",
+              "거리 표현을 그 시점 것으로 다시 만든다", text)
+        check("조금 뒤" not in text,
+              "5m 앞에서는 '조금 뒤'가 아니다 — 지금 할 일이다", text)
+
+        # 속도를 빠르게 잡으면 일찍 말한다 (안전한 쪽)
+        h._cue_pacing = {"enabled": True, "speed_mps": 2.0, "speak_at_m": 5.0}
+        _, later2 = nav_ws._split_cues(NavSession(), [turn20], 0)
+        check(later2[0][0] == 7_500, "속도를 빠르게 잡으면 일찍 말한다",
+              f"{later2[0][0] / 1000:.1f}초 뒤")
+
+        # 남은 거리를 크게 잡으면 거리 표현이 다시 붙는다
+        h._cue_pacing = {"enabled": True, "speed_mps": 1.0, "speak_at_m": 10.0}
+        _, later3 = nav_ws._split_cues(NavSession(), [turn20], 0)
+        check(later3[0][1] == "조금 뒤 오른쪽으로 꺾으세요.",
+              "남은 거리에 맞는 표현이 붙는다", later3[0][1])
+
+        # 상한
+        h._cue_pacing = {"enabled": True, "speed_mps": 0.1, "speak_at_m": 5.0}
+        _, later4 = nav_ws._split_cues(NavSession(), [turn20], 0)
+        check(later4[0][0] == nav_ws.CUE_MAX_HOLD_MS,
+              "아무리 길어도 상한까지", f"{later4[0][0] / 1000:.0f}초")
+
+        # 때가 돼야 나온다
+        q = NavSession()
+        q.due = [(1_000, "오른쪽으로 꺾으세요."), (5_000, "왼쪽으로 꺾으세요.")]
+        check(nav_ws._take_due(q, 500) == [], "때가 안 되면 안 나온다")
+        check(nav_ws._take_due(q, 1_000) == ["오른쪽으로 꺾으세요."],
+              "때가 된 것만 나온다")
+        check(len(q.due) == 1, "나머지는 남는다", f"{len(q.due)}개")
+
+        # 다음 비콘에 먼저 닿으면 남은 것을 그때 다 내보낸다 — 버리지 않는다.
+        # 예상보다 빨리 걸었을 뿐이고 그 회전은 여전히 앞에 있다.
+        check(nav_ws._take_due(q, 0, force=True) == ["왼쪽으로 꺾으세요."],
+              "다음 비콘에서 남은 것을 같이 내보낸다")
+        check(not q.due, "그러고 나면 비어 있다")
+    finally:
+        h._cue_pacing = keep
+
+    # 실제 세션에서 한 바퀴 — 미룬 것이 다음 전이에 실려 나가는지
+    print("\n── 늦춰 말하기 (세션) ──")
+    keep = h._cue_pacing
+    try:
+        h._cue_pacing = {"enabled": True, "speed_mps": 1.0, "speak_at_m": 5.0}
+        n = NavSession()
+        feed(n, MAJ4, [(26, -45)], mac="BB:04:00:00:00:1B")
+        r = send(n, {"event": "destination", "id": "lm10"})
+        started = [m for m in r if m.get("event") == "start"]
+        check(bool(started), "4층에서 바로 안내가 걸린다", str([m.get("event") for m in r]))
+
+        # 미뤄둔 것이 있으면 다음 전이에 실려 나가야 한다
+        n.due = [(nav_ws._now_ms() + 60_000, "오른쪽으로 꺾으세요.")]
+        msgs = nav_ws._transition_message(n, {"number": 2, "total": 5,
+                                              "direction": "forward", "isLast": False})
+        said = msgs[0].get("utterance") or ""
+        check("오른쪽으로 꺾으세요." in said,
+              "때가 안 됐어도 다음 비콘에서 같이 나간다", said[:40])
+        # 큐에는 **그 칸에서 새로 미룬 것**만 남는다. 내보낸 것이 다시 들어가면 안 된다.
+        check(all("오른쪽으로 꺾으세요." != t for _, t in n.due),
+              "내보낸 것은 큐에 안 남는다",
+              " / ".join(t for _, t in n.due) or "비었음")
+
+        # 경로를 벗어나면 버린다 — 안 가는 길의 회전이다
+        n.due = [(nav_ws._now_ms() + 60_000, "오른쪽으로 꺾으세요.")]
+        nav_ws._transition_message(n, {"number": 1, "total": 5,
+                                       "direction": "back", "isLast": False})
+        check(not n.due, "경로를 벗어나면 미룬 것을 버린다", f"{len(n.due)}개")
+    finally:
+        h._cue_pacing = keep
 
     print(f"\n{'전체' if not fails else '실패'} "
           f"{total - len(fails)}/{total}개 통과 {OK if not fails else BAD}")

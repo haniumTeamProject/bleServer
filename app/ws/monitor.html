@@ -272,6 +272,31 @@
       이미 진행 중인 안내에는 반영되지 않습니다(다시 목적지를 말해야 적용).
     </div>
 
+    <!-- 발화 시점 — 어느 비콘이 무엇을 말할지는 그대로 두고, 그 안에서
+         언제 입을 여는지만 바꾼다. 실측에서 둘을 번갈아 걸어보려고 스위치로 뒀다. -->
+    <div class="map-bar" style="flex-wrap:wrap;">
+      <label>발화 시점
+        <select id="cuePacingInput">
+          <option value="0">기본 — 비콘에 닿으면 바로</option>
+          <option value="1">늦춰 말하기 — 그 지점 가까이에서</option>
+        </select>
+      </label>
+      <label>걷는 속도(m/s) <input id="cueSpeedInput" type="number" value="1.2" step="0.1" min="0.2" style="width:70px;"></label>
+      <label>남은 거리(m) <input id="cueSpeakAtInput" type="number" value="5" step="1" min="0" style="width:70px;"></label>
+    </div>
+    <div class="hint" style="margin:-4px 0 10px;">
+      <b>기본</b>은 비콘에 닿는 순간 그 칸의 안내를 전부 말합니다 — 회전 지점이 20m 뒤여도
+      "조금 뒤 오른쪽으로 꺾으세요"가 그때 나갑니다.
+      <b>늦춰 말하기</b>는 회전·횡단을 <b>남은 거리</b>만큼 앞까지 미뤘다가 말합니다.
+      미룬 문장은 그 시점 거리로 다시 만들어서 "오른쪽으로 꺾으세요"만 남습니다.
+      (남은 거리를 6m 이상으로 잡으면 "조금 뒤"가 다시 붙습니다)
+      <br>
+      얼마나 미룰지는 <b>걷는 속도</b>로 어림합니다(거리 ÷ 속도). 실제보다
+      <b>빠르게</b> 잡으면 일찍 말하니 안전한 쪽이고, 느리게 잡으면 늦습니다.
+      다음 비콘에 먼저 닿으면 미룬 것을 그때 같이 내보내므로 사라지지는 않습니다.
+      직진·도착 안내는 미루지 않습니다.
+    </div>
+
     <div id="navStatus" class="hint" style="margin-bottom:10px;">층을 고르면 지도를 불러옵니다.</div>
 
     <!-- 어느 비콘에서 무슨 말이 나가는지. 배정 방식 두 가지를 나란히 본다. -->
@@ -1451,6 +1476,39 @@
     });
   });
   ws.addEventListener('open', () => setTimeout(pushTuning, 120));
+
+  // 발화 시점 — 판정 설정과 같은 방식으로 서버에 미리 걸어둔다.
+  //
+  // 배정(어느 비콘이 무엇을 말할지)은 이 값과 무관하다. 안내 표에 보이는 것은
+  // 그대로이고, 입을 여는 시점만 달라진다.
+  function pushCuePacing() {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({
+      type: 'guide', event: 'setCuePacing',
+      enabled: document.getElementById('cuePacingInput').value === '1',
+      speedMps: parseFloat(document.getElementById('cueSpeedInput').value) || 1.2,
+      speakAtM: parseFloat(document.getElementById('cueSpeakAtInput').value) || 5,
+    }));
+  }
+
+  function syncCuePacingInputs() {
+    const on = document.getElementById('cuePacingInput').value === '1';
+    for (const id of ['cueSpeedInput', 'cueSpeakAtInput']) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      el.disabled = !on;
+      el.style.opacity = on ? '' : '0.45';
+    }
+  }
+
+  ['cuePacingInput', 'cueSpeedInput', 'cueSpeakAtInput'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', () => {
+      syncCuePacingInputs();
+      pushCuePacing();
+    });
+  });
+  syncCuePacingInputs();
+  ws.addEventListener('open', () => setTimeout(pushCuePacing, 140));
 
   // 창·구간은 "기존(trend)" 방식만 안 쓴다.
   //

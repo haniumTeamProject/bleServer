@@ -72,6 +72,18 @@ IDLE_ASK_MS = 30_000
 # 거기서 멈출 것이 확실하므로 기다릴 이유가 없다.
 WRONG_FLOOR_DWELL_MS = 5_000
 
+# 기다리던 층이 아닌 곳에 내렸을 때, 거기서 경로를 다시 짤 것인가.
+#
+# **끈다.** 엘리베이터가 층을 지나칠 때 그 층으로 판정되면 WRONG_FLOOR_DWELL_MS
+# 뒤에 경로가 통째로 새로 짜인다 — 아직 타고 있는데 "여기서 다시 갑니다"가 나가고,
+# 그 층 비콘이 제대로 안 잡히므로 대개 실패한다. 층 판정이 완전히 믿을 만해지기
+# 전까지는 얻는 것보다 잃는 것이 크다.
+#
+# 꺼도 갇히지 않는다. 목표 층 신호가 올 때까지 조용히 기다릴 뿐이고, 잘못 내렸으면
+# 그 층으로 다시 가면 이어진다. 켜면 "3층에 내렸으니 3층에서 다시 4층으로" 안내가
+# 나간다 — 그게 필요해지면 그때 켠다.
+REPLAN_ON_WRONG_FLOOR = False
+
 # 건물이 정해진 뒤 층을 확정하기까지 신호를 모으는 시간.
 #
 # 첫 비콘 하나로 층을 정하면 그것이 **가장 가까운 비콘이라는 보장이 없다.** 계단·
@@ -82,15 +94,71 @@ WRONG_FLOOR_DWELL_MS = 5_000
 # 늦게 나가지만, 틀린 층의 목록을 즉시 주는 것보다 낫다.
 FLOOR_SETTLE_MS = 1_500
 
-# 층이 바뀌려면 새 층 신호가 이만큼 **혼자** 유지돼야 한다.
+# 층이 바뀌려면 새 층이 이만큼 계속 이기고 있어야 한다.
 #
 # 엘리베이터 앞에 서 있기만 해도 위아래 층 신호가 샌다. 한 패킷만 보고 바꾸면
-# 거기 서 있는 것만으로 층이 바뀐 줄 알고 다음 구간을 시작한다 — 실제로 그랬고,
-# 그 층 비콘이 제대로 안 잡혀 경로 생성이 실패하면서 안내가 처음으로 돌아갔다.
-#
-# 지금 층 신호가 한 번이라도 섞여 들어오면 후보를 깬다. 그래서 "문 앞에 서 있다"와
-# "정말 타고 올라갔다"가 갈린다 — 후자는 지금 층이 통째로 끊기기 때문이다.
+# 거기 서 있는 것만으로 층이 바뀐 줄 알고 다음 구간을 시작한다.
 FLOOR_SWITCH_DWELL_MS = 3_000
+
+# 후보 층이 지금 층을 이만큼(dB) 이겨야 후보로 선다.
+#
+# ── 왜 "들리기만 하면 깬다"가 아닌가 ──────────────────────────────
+#
+# 처음에는 지금 층 신호가 한 번이라도 섞이면 후보를 깼다. 그런데 앱은 스캔된 것을
+# **거르지 않고 전부** 올린다(`NavClient` 에 RSSI 하한이 없다). 그래서 슬래브를
+# 뚫고 들어온 -90dB 짜리 유령 신호가 -46dB 와 똑같은 한 표를 가졌다.
+#
+# 실측 로그가 그대로 보여줬다. 엘리베이터에서 내려 104-1 이 -46 이고 103-1 이
+# -79 인데(33dB 차) **층이 바뀌는 데 20초가 걸렸다.** 103 패킷이 띄엄띄엄 올라오며
+# 매번 시계를 0으로 돌렸기 때문이다. 3초짜리 깨끗한 창이 우연히 열릴 때까지
+# 기다린 셈이라, 안 열리면 영영 안 바뀐다 — 실제로 그런 적이 있다.
+#
+# 그래서 세기로 겨룬다.
+#
+#     엘리베이터 앞에 서 있다   지금 층이 같은 방에서 세게 들린다 → 못 이긴다
+#     내려서 나왔다             새 층이 같은 방, 옛 층은 슬래브 너머 → 이긴다
+#
+# 콘크리트 슬래브 하나면 보통 10~20dB 떨어진다. 6dB 는 그 절반도 안 되므로
+# 층이 실제로 바뀌면 넉넉히 넘고, 잡음(±2dB)으로는 안 넘는다.
+FLOOR_WIN_DB = 6.0
+
+# 미뤄둔 안내를 아무리 길게 붙들어도 이만큼까지다.
+#
+# 25m 앞의 회전을 1m/s 로 잡으면 20초를 기다리게 된다. 그 사이에 사용자가 멈춰
+# 섰거나 다른 길로 갔으면 그 안내는 이미 틀린 것이다. 다음 비콘에 닿으면 어차피
+# 그때 같이 나가므로(`_take_due`), 이 상한은 "아무 일도 안 일어날 때"의 안전장치다.
+CUE_MAX_HOLD_MS = 20_000
+
+# 이만큼 안 들린 비콘은 **없는 것으로 친다.**
+#
+# 칼만 필터는 표본이 와야만 갱신된다. 시간이 지난다고 값을 깎지 않는다. 그래서
+# 5분 전에 마지막으로 들은 비콘도 그때 그 -45dB 를 그대로 들고 있다. 세기로 층을
+# 겨루려면 이 유령값부터 걷어내야 한다 — 안 그러면 떠나온 층이 영원히 이긴다.
+#
+# 신호는 초당 수십 개씩 들어오므로, 5초 동안 하나도 없으면 정말 안 들리는 것이다.
+BEACON_STALE_MS = 5_000
+
+
+@dataclass(frozen=True)
+class SpokenCue:
+    """한 비콘에서 말할 안내 하나. **거리 표현을 떼어서 같이 들고 있는다.**
+
+    `cues.py` 는 문장을 만들 때 얼마나 앞선 이야기인지를 붙인다 — "조금 뒤
+    오른쪽으로 꺾으세요". 그 비콘에 닿는 순간 말할 것을 전제로 한 문장이다.
+
+    그런데 **늦춰서 말하면 그 수식이 거짓이 된다.** 5m 앞에서 "조금 뒤"라고 하면
+    지금 할 일을 나중 일로 미룬다. 그래서 알맹이(`base`)와 거리(`lead_m`)를 따로
+    들고, 말하는 시점에 수식을 **다시 만든다.**
+
+    숫자는 어느 쪽에서도 말하지 않는다 — 사용자가 걸으면서 미터를 셀 수 없고,
+    경로 길이 자체가 노드를 잇는 직선의 합이라 실제 걷는 거리와 다르다
+    (`cues.lead_phrase`).
+    """
+
+    text: str        # 지금 당장 말할 때 쓰는 문장 (거리 표현 포함)
+    base: str        # 거리 표현을 뗀 알맹이
+    lead_m: float    # 이 비콘에서 그 일이 벌어지는 지점까지
+    kind: str        # turn | crossEnter | crossExit | straight | arrive
 
 
 class NavSession:
@@ -102,6 +170,9 @@ class NavSession:
         # `/ws` 처럼 "MAC|이름" 을 쓸 이유가 없다.
         self.filters: dict[str, RssiFilterPipeline] = {}
         self.beacon_ids: dict[str, dict] = {}
+        # 비콘을 마지막으로 들은 시각. 필터값만으로는 "안 들린다"와 "약하게
+        # 들린다"를 구분할 수 없어서 따로 든다 (`BEACON_STALE_MS`).
+        self.last_seen: dict[str, int] = {}
         self.tracker = PathTracker()
 
         # 건물은 MAC 으로 한 번만 정하고, 층도 **세션당 한 번만** 정한다.
@@ -111,7 +182,7 @@ class NavSession:
         self.major: int | None = None
         # 건물이 정해진 시각. 여기서부터 FLOOR_SETTLE_MS 만큼 모은 뒤 층을 정한다.
         self.building_at: int = 0
-        # 층을 바꿀 후보와 그것이 처음 나온 시각. 지금 층 신호가 섞이면 깨진다.
+        # 층을 바꿀 후보와 그것이 처음 이기기 시작한 시각. 못 이기게 되면 깨진다.
         self.floor_cand: int | None = None
         self.floor_cand_at: int = 0
         self.landmarks: list[landmark_matcher.Landmark] = []
@@ -123,7 +194,9 @@ class NavSession:
         self.destination: landmark_matcher.Landmark | None = None
         self.plan: navigation.RoutePlan | None = None
         # 칸 번호별로 말할 문장. cues[i] = i+1 번째 칸.
-        self.cues: list[list[str]] = []
+        self.cues: list[list[SpokenCue]] = []
+        # 늦춰 말하기 모드에서 아직 안 나간 안내. (말할 시각, 문장)
+        self.due: list[tuple[int, str]] = []
 
         # -- 층 이동 -------------------------------------------------------
         #
@@ -192,6 +265,7 @@ class NavSession:
         self.destination = None
         self.plan = None
         self.cues = []
+        self.due = []
         self.legs = []
         self.leg_index = 0
         self.awaiting_floor = None
@@ -560,7 +634,7 @@ def on_beacons(session: NavSession, data: dict) -> list[dict]:
     받아들여 톱니 파형을 만든다.
     """
     samples: list[tuple[str, float, float]] = []
-    seen_majors: set[int] = set()
+    now = _now_ms()
     for b in data.get("beacons") or []:
         if not isinstance(b, dict):
             continue
@@ -573,8 +647,7 @@ def on_beacons(session: NavSession, data: dict) -> list[dict]:
             continue
 
         _locate_building(session, b.get("mac"))
-        if isinstance(major, int):
-            seen_majors.add(major)
+        session.last_seen[key] = now
         session.beacon_ids[key] = {"major": major, "minor": minor}
         pipe = session.filters.setdefault(key, RssiFilterPipeline())
         filtered = pipe.filter(float(rssi))
@@ -584,9 +657,9 @@ def on_beacons(session: NavSession, data: dict) -> list[dict]:
             session.recorder.sample(
                 monitor_mirror.display_key(session.floor_id, key), float(rssi), filtered)
 
-    # 층은 **필터를 다 먹인 뒤에** 정한다. "가장 센 비콘"을 보려면 이번 패킷까지
+    # 층은 **필터를 다 먹인 뒤에** 정한다. 층끼리 세기를 겨루려면 이번 패킷까지
     # 반영돼 있어야 하기 때문이다.
-    located = _locate_floor(session, seen_majors)
+    located = _locate_floor(session, now)
 
     # `/monitor` 로 넘길 것. **판정(evaluate)보다 먼저 만들지 않는다** — 아래에서
     # 인덱스가 옮겨갈 수 있고, 그 전 상태를 그리면 화면이 한 박자 늦는다.
@@ -673,71 +746,100 @@ def _locate_building(session: NavSession, mac) -> None:
     print(f"[nav] {session.id} 건물 확정 — {building_id} (MAC {mac})")
 
 
-def _locate_floor(session: NavSession, seen_majors: set[int]) -> bool:
+def _floor_levels(session: NavSession, now: int) -> dict[int, float]:
+    """층(major)마다 **지금 들리는 것 중 가장 센 값.**
+
+    최근 `BEACON_STALE_MS` 안에 들은 비콘만 센다. 칼만 필터는 표본이 와야만
+    갱신되므로, 이 거름망이 없으면 떠나온 층의 얼어붙은 값이 계속 끼어든다.
+    """
+    out: dict[int, float] = {}
+    for key, pipe in session.filters.items():
+        if not getattr(pipe, "initialized", False):
+            continue
+        if now - session.last_seen.get(key, 0) > BEACON_STALE_MS:
+            continue
+        major = navigation.key_major(key)
+        if major is None:
+            continue
+        v = float(pipe.x)
+        if major not in out or v > out[major]:
+            out[major] = v
+    return out
+
+
+def _locate_floor(session: NavSession, now: int) -> bool:
     """지금 몇 층인지 정한다. **층이 실제로 바뀌었을 때만 True.**
 
-    ── 한 패킷으로는 안 바뀐다 ───────────────────────────────────
+    ── 층끼리 세기로 겨룬다 ──────────────────────────────────────
 
-    예전에는 들어오는 비콘의 major 를 **언제나 즉시** 따라갔다. 그런데 이 함수는
-    비콘 하나하나마다 불리고 앱은 스캔될 때마다 한 개씩 보내므로, 두 층 신호가
-    번갈아 잡히는 자리(계단·엘리베이터 앞)에서는 **매 패킷마다 층이 뒤집혔다.**
+    층마다 "지금 들리는 것 중 가장 센 값"을 뽑아 비교한다. 후보 층이 지금 층을
+    `FLOOR_WIN_DB` 이상 이기고, 그 상태가 `FLOOR_SWITCH_DWELL_MS` 동안 이어지면
+    옮긴 것으로 본다.
 
-        층 f-3 → f-4 (major 104)
-        층 f-4 → f-3 (major 103)
-        층 f-3 → f-4 (major 104)   …
+        엘리베이터 앞에 서 있다   지금 층이 같은 방에서 세게 들린다 → 못 이긴다
+        내려서 나왔다             새 층이 같은 방, 옛 층은 슬래브 너머 → 이긴다
+        지금 층이 통째로 끊겼다   겨룰 상대가 없다 → 곧바로 후보가 선다
 
-    뒤집힐 때마다 `located` 가 True 라, 목적지가 정해지기 전이면 "목적지를 말씀해
-    주세요" + 목록이 계속 다시 나갔다. 폰은 그때마다 마이크를 새로 열어서
-    **사용자가 말을 시작할 수가 없었다.**
-
-    반대로 한 번 정하고 아예 잠가버리면 **경로 없이 층을 옮겼을 때 서버가 모른다.**
-    3층에 서 있는데 4층 목록을 주고 4층 경로를 만든다.
-
-    그래서 후보를 두고 **유지되는지 본다.**
-
-        지금 층 신호가 섞여 들어온다  →  후보가 매번 깨진다  →  안 바뀐다
-        지금 층 신호가 끊겼다        →  후보가 유지된다     →  FLOOR_SWITCH_DWELL_MS 뒤 바뀐다
-
-    엘리베이터 앞에 서 있으면 지금 층이 계속 들리므로 안 바뀌고, 실제로 타고
-    올라가면 지금 층이 끊기므로 바뀐다. 같은 장치가 두 경우를 다 가린다.
+    같은 장치가 세 경우를 다 가른다. **"들리기만 하면 깬다"로는 안 됐다** —
+    앱이 -90dB 유령 신호까지 전부 올리는데 그 한 표가 -46dB 와 같은 무게라,
+    실측에서 33dB 차이를 두고도 전환에 20초가 걸렸다(`FLOOR_WIN_DB` 주석 참고).
 
     ── 최초 확정만 다르다 ────────────────────────────────────────
 
-        최초    필터를 FLOOR_SETTLE_MS 만큼 채운 뒤 **가장 센 비콘**의 major
-        이후    후보 major 가 FLOOR_SWITCH_DWELL_MS 동안 유지되면 전환
+        최초    FLOOR_SETTLE_MS 만큼 모은 뒤 **가장 센 층**
+        이후    후보 층이 여유를 두고 이기는 상태가 유지되면 전환
 
-    이후 판정에서 "가장 센 것"을 쓰면 안 된다. **칼만 필터는 신호가 끊겨도 값을
-    잃지 않아서**, 3층에 막 내린 순간에도 20초 전 4층 비콘이 여전히 제일 세다.
-    그러면 층이 바뀐 것을 영영 못 알아채고 안내가 멈춘다.
+    최초에는 "유지되는지"를 볼 수 없다. 비교할 지금 층이 아직 없다.
+
+    ── 왜 한 패킷으로 안 바꾸나 ──────────────────────────────────
+
+    예전에는 들어오는 비콘의 major 를 **언제나 즉시** 따라갔고, 이 함수가 비콘
+    하나하나마다 불렸다. 두 층 신호가 번갈아 잡히는 자리에서는 매 패킷마다 층이
+    뒤집혔고, 뒤집힐 때마다 "목적지를 말씀해 주세요"가 다시 나가 폰이 마이크를
+    새로 열었다 — **사용자가 말을 시작할 수가 없었다.**
+
+    반대로 한 번 정하고 잠가버리면 경로 없이 층을 옮겼을 때 서버가 모른다.
     """
     if session.building_id is None:
         return False
 
+    levels = _floor_levels(session, now)
+
     if session.floor_id is None:
-        # 최초 확정 — 잠깐 모았다가 가장 센 비콘으로 정한다
-        if _now_ms() - session.building_at < FLOOR_SETTLE_MS:
+        # 최초 확정 — 잠깐 모았다가 가장 센 층으로 정한다
+        if now - session.building_at < FLOOR_SETTLE_MS:
             return False
-        key = navigation.strongest_beacon_key(session.filters)
-        major = navigation.key_major(key) if key else None
-        why = f"가장 센 비콘 {key}"
+        if not levels:
+            return False
+        major = max(levels, key=lambda m: levels[m])
+        why = f"가장 센 층 {levels[major]:.0f}dB"
     else:
-        # 지금 층이 이번 패킷에 섞여 있으면 아직 여기다 — 후보를 깬다.
-        if session.major in seen_majors:
-            session.floor_cand = None
-            return False
-        cand = next((m for m in sorted(seen_majors) if m != session.major), None)
+        here = levels.get(session.major)
+
+        # 지금 층을 여유 있게 이기는 층 중 가장 센 것.
+        cand: int | None = None
+        for m, v in levels.items():
+            if m == session.major:
+                continue
+            if here is not None and v - here < FLOOR_WIN_DB:
+                continue
+            if cand is None or v > levels[cand]:
+                cand = m
+
         if cand is None:
+            session.floor_cand = None
             return False
         if session.floor_cand != cand:
             session.floor_cand = cand
-            session.floor_cand_at = _now_ms()
+            session.floor_cand_at = now
             return False
-        held = _now_ms() - session.floor_cand_at
+        held = now - session.floor_cand_at
         if held < FLOOR_SWITCH_DWELL_MS:
             return False
         session.floor_cand = None
         major = cand
-        why = f"{held / 1000:.1f}초 유지"
+        why = (f"{held / 1000:.1f}초 유지 · {levels[cand]:.0f}dB "
+               + (f"vs {here:.0f}dB" if here is not None else "· 지금 층 끊김"))
 
     if major is None:
         return False
@@ -773,11 +875,22 @@ def _transition_message(session: NavSession, t: dict) -> list[dict]:
     forward = t.get("direction") == "forward"
 
     if not forward:
+        # 경로를 벗어났으면 미뤄둔 안내는 버린다. 안 가는 길의 회전이다.
+        session.due = []
         return [out("back", "navigating", utterance="멈추세요. 경로를 벗어났습니다.",
                     haptic="warn", screen=screen_of(None, None, step, total))]
 
+    now = _now_ms()
+    # 미뤄둔 것이 남아 있으면 **여기서 같이 내보낸다.** 예상보다 빨리 걸어서 다음
+    # 비콘에 먼저 닿은 것이고, 그 회전은 여전히 앞에 있다. 한 메시지에 합치는
+    # 이유는 앱이 진행 안내를 하나만 대기시키기 때문이다 — 따로 보내면 뒤엣것이
+    # 앞엣것을 밀어낸다(`SpeechOutput`).
+    held = _take_due(session, now, force=True)
+
     # 이 칸에 배정된 안내. seq 는 1부터라 -1 한다.
-    said = _cues_for_step(session, step)
+    cues = _cues_for_step(session, step)
+    said, later = _split_cues(session, cues, now)
+    session.due = later
 
     if is_last:
         # **여기가 갈리는 지점이다.**
@@ -795,21 +908,23 @@ def _transition_message(session: NavSession, t: dict) -> list[dict]:
         name = session.destination.name if session.destination else "목적지"
         # 도착 안내는 cue 로도 만들어지지만(마지막 비콘 고정), 그것이 없거나
         # 다른 칸에 있을 수 있으므로 여기서 반드시 도착을 말한다.
-        text = " ".join(said) if said else f"{name}입니다."
+        text = " ".join(held + said) if (held or said) else f"{name}입니다."
         return [out("arrive", "arrived", utterance=text,
                     haptic="arrive", screen=screen_of(name, None, step, total))]
 
-    if not said:
+    words = held + said
+    if not words:
         # 이 비콘에 할 말이 없다 — 표 2번 "일반 직진"은 무음이다.
+        # 미룬 것만 있고 지금 말할 것이 없어도 여기로 온다.
         # 화면의 진행 표시만 갱신한다.
         return [out("advance", "navigating", utterance=None,
                     screen=screen_of(None, None, step, total))]
 
-    return [out("advance", "navigating", utterance=" ".join(said),
+    return [out("advance", "navigating", utterance=" ".join(words),
                 haptic="guide", screen=screen_of(None, None, step, total))]
 
 
-def _build_cues(session: NavSession, plan, destination: str) -> list[list[str]]:
+def _build_cues(session: NavSession, plan, destination: str) -> list[list[SpokenCue]]:
     """경로 노드에서 안내 문구를 뽑아 **칸 번호대로** 늘어놓는다.
 
     돌려주는 것은 `cues[i] = i+1 번째 칸에서 말할 문장들` 이다. 추적기는 칸 번호로
@@ -820,7 +935,7 @@ def _build_cues(session: NavSession, plan, destination: str) -> list[list[str]]:
     세 가지 배정 방식이 있지만(`docs/경로안내_생성과_진행판정.md`), 실제 안내에는
     소유 방식을 쓴다. 비콘 간격이 넓은 자리에서도 **한 칸은 반드시 확보**되어,
     그 비콘의 판정이 늦어도 말할 기회를 놓치지 않기 때문이다. 얼마나 앞선
-    이야기인지는 문장에 거리로 담긴다("조금 뒤", "약 20미터 뒤").
+    이야기인지는 문장에 수식으로 담긴다("조금 뒤").
 
     실패해도 안내는 계속돼야 하므로 예외를 삼킨다 — 문구가 없으면 무음일 뿐,
     진행 판정과 도착은 그대로 돈다.
@@ -844,21 +959,107 @@ def _build_cues(session: NavSession, plan, destination: str) -> list[list[str]]:
         print(f"[nav {session.id}] 안내 문구를 만들지 못함: {e!r}")
         return []
 
-    by_step = [[c.text for c in st.cues_by_owner] for st in result.steps]
+    from app.nav import cues as cue_mod
+
+    by_step = []
+    for st in result.steps:
+        row = []
+        for c in st.cues_by_owner:
+            lead = max(0.0, c.dist_m - st.dist_m)
+            phrase = cue_mod.lead_phrase(lead)
+            # `finalize` 가 정확히 이 접두어를 붙여 만든 문장이다. 떼면 알맹이가 남는다.
+            base = c.text[len(phrase):] if phrase and c.text.startswith(phrase) else c.text
+            row.append(SpokenCue(text=c.text, base=base, lead_m=lead, kind=c.kind))
+        by_step.append(row)
     spoken = sum(len(x) for x in by_step)
     print(f"[nav {session.id}] 안내 {spoken}개 / {len(by_step)}칸"
           + (f" · 미배정 {len(result.orphan_owner)}개" if result.orphan_owner else ""))
     return by_step
 
 
-def _cues_for_step(session: NavSession, step: int | None) -> list[str]:
-    """그 칸에서 말할 문장들. 없으면 빈 목록."""
+def _cues_for_step(session: NavSession, step: int | None) -> list[SpokenCue]:
+    """그 칸에서 말할 안내들. 없으면 빈 목록."""
     if not step or not session.cues:
         return []
     index = step - 1
     if 0 <= index < len(session.cues):
         return session.cues[index]
     return []
+
+
+# ---------------------------------------------------------------------------
+# 안내 발화 시점
+# ---------------------------------------------------------------------------
+def _pacing() -> dict:
+    """`/monitor` 에서 고른 발화 시점 설정. 전역 하나다(판정 설정과 같은 방식)."""
+    try:
+        from app.ws.handler import _cue_pacing
+        return _cue_pacing
+    except Exception:
+        return {}
+
+
+def _split_cues(session: NavSession, cues: list[SpokenCue],
+                now: int) -> tuple[list[str], list[tuple[int, str]]]:
+    """그 비콘의 안내를 **지금 말할 것**과 **미룰 것**으로 가른다.
+
+    ── 왜 미루나 ─────────────────────────────────────────────────
+
+    안내는 비콘 하나를 통째로 소유한다. 그래서 비콘에 닿는 순간 그 구간에서 할 말이
+    한꺼번에 나가고, 정작 회전 지점은 20m 뒤일 수 있다. 거리를 문장에 담아
+    ("조금 뒤") 뜻은 통하지만, **일이 벌어지는 순간에 말해주는 것과는 다르다.**
+
+    비콘을 바꾸는 것이 아니다. 어느 비콘이 무엇을 말할지는 그대로 두고,
+    **그 안에서 언제 입을 여는지만** 옮긴다.
+
+    ── 늦추면 거리 표현이 거짓이 된다 ────────────────────────────
+
+    그래서 미룬 문장은 알맹이만 가져다가 **그 시점의 거리로 다시 만든다.**
+    `speak_at_m` 이 5m 면 `lead_phrase(5)` 는 빈 문자열이라 "오른쪽으로 꺾으세요"
+    만 남는다 — 회전 직전에 듣는 말로는 그게 맞다. 6m 이상으로 잡으면 "조금 뒤"가
+    다시 붙는다.
+
+    ── 안 미루는 것 ──────────────────────────────────────────────
+
+        straight   "계속 직진하세요"는 지점을 가리키는 말이 아니라 지금 상태 확인이다
+        arrive     도착은 그 비콘이 곧 그 자리다
+        가까운 것   이미 `speak_at_m` 안이면 미룰 이유가 없다
+    """
+    cfg = _pacing()
+    if not cfg.get("enabled"):
+        return [c.text for c in cues], []
+
+    from app.nav import cues as cue_mod
+
+    speak_at = float(cfg.get("speak_at_m") or 5.0)
+    speed = max(0.1, float(cfg.get("speed_mps") or 1.2))
+    phrase = cue_mod.lead_phrase(speak_at)
+
+    say_now: list[str] = []
+    later: list[tuple[int, str]] = []
+    for c in cues:
+        if c.kind in ("straight", "arrive") or c.lead_m <= speak_at:
+            say_now.append(c.text)
+            continue
+        wait_ms = int((c.lead_m - speak_at) / speed * 1000)
+        if wait_ms < 500:
+            say_now.append(c.text)
+            continue
+        later.append((now + min(wait_ms, CUE_MAX_HOLD_MS), phrase + c.base))
+    return say_now, later
+
+
+def _take_due(session: NavSession, now: int, force: bool = False) -> list[str]:
+    """때가 된 안내를 꺼낸다. `force` 면 남은 것을 전부.
+
+    다음 비콘으로 넘어갈 때 `force` 로 부른다. **미룬 것을 버리면 안 된다** —
+    사용자가 예상보다 빨리 걸었을 뿐이고, 그 회전은 여전히 앞에 있다.
+    """
+    if not session.due:
+        return []
+    ready = [t for at, t in session.due if force or at <= now]
+    session.due = [] if force else [(at, t) for at, t in session.due if at > now]
+    return ready
 
 
 def on_destination(session: NavSession, data: dict) -> list[dict]:
@@ -1077,7 +1278,13 @@ def _start_leg(session: NavSession) -> list[dict]:
         opening = [f"{name}로 안내합니다. 손이 닿는 벽을 짚고 걸어주세요."]
     else:
         opening = [f"{name}로 계속 안내합니다."]
-    opening += _cues_for_step(session, session.tracker.index + 1)
+
+    # 출발 칸의 안내도 늦출 수 있다. 다만 출발 문장 자체는 지금 말한다.
+    session.due = []
+    say_now, later = _split_cues(session, _cues_for_step(session, session.tracker.index + 1),
+                                 _now_ms())
+    session.due = later
+    opening += say_now
 
     # 화면에 띄우는 이름은 **최종 목적지**다. 경유지 이름을 띄우면 사용자가
     # 목적지가 바뀐 줄 안다 — 서버 안에서 구간을 쪼갠 것은 앱이 알 바가 아니다.
@@ -1113,6 +1320,7 @@ def _handoff(session: NavSession, leg: legs_mod.Leg, opening: str = "") -> list[
     # `/monitor` 가 1층 경로를 계속 그릴 수 있어야 층 이동 직전 상태를 볼 수 있다.
     session.tracker.end_session()
     session.stop_recording("층 이동")
+    session.due = []            # 이 층에서 미룬 안내는 여기서 끝이다
     session.awaiting_floor = leg.next_floor_id
     print(f"[nav] {session.id} {leg.dest_name} 도달 — {leg.next_floor_no}층 신호를 기다린다")
 
@@ -1157,6 +1365,10 @@ def _maybe_resume(session: NavSession) -> list[dict]:
         return []
 
     if session.floor_id != want:
+        # 지금은 꺼 둔다. 엘리베이터가 지나치는 층을 도착으로 읽으면 아직 타고
+        # 있는데 경로가 새로 짜인다 (`REPLAN_ON_WRONG_FLOOR` 주석 참고).
+        if not REPLAN_ON_WRONG_FLOOR:
+            return []
         # 지나가는 중일 수 있다. 잠깐 머물러 보고 판단한다.
         if _now_ms() - session.floor_since < WRONG_FLOOR_DWELL_MS:
             return []
@@ -1308,6 +1520,12 @@ async def navigation_endpoint(websocket: WebSocket):
     tasks.add(idle)
     idle.add_done_callback(tasks.discard)
 
+    # 늦춰 말하기 모드에서 미뤄둔 안내를 내보내는 쪽. 기본 모드에서는 큐가
+    # 늘 비어 있어 아무 일도 안 한다.
+    paced = asyncio.create_task(_watch_cues(websocket, session, lock))
+    tasks.add(paced)
+    paced.add_done_callback(tasks.discard)
+
     try:
         while True:
             raw = await websocket.receive_text()
@@ -1404,6 +1622,34 @@ async def _watch_idle(websocket: WebSocket, session: NavSession,
         raise
     except Exception as e:
         print(f"[nav {session.id}] 정지 감시 오류: {e!r}")
+
+
+async def _watch_cues(websocket: WebSocket, session: NavSession,
+                      lock: asyncio.Lock) -> None:
+    """늦춰둔 안내를 때가 되면 내보낸다.
+
+    `_watch_idle` 과 같은 이유로 따로 돈다 — 소켓 루프는 폰이 보낸 것이 있을 때만
+    깨어나므로 "시간이 됐다"를 스스로 알 수 없다.
+
+    0.25초마다 보는 이유는 발화 시점이 초 단위로 어긋나면 티가 나기 때문이다.
+    비콘은 초당 수십 개씩 오지만 그것과 별개로 시간을 세야 한다.
+    """
+    try:
+        while True:
+            await asyncio.sleep(0.25)
+            if not session.due:
+                continue
+            texts = _take_due(session, _now_ms())
+            if not texts:
+                continue
+            msg = out("advance", "navigating", utterance=" ".join(texts), haptic="guide")
+            _log_out(session, msg)
+            async with lock:
+                await _send(websocket, msg)
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        print(f"[nav {session.id}] 발화 시점 감시 오류: {e!r}")
 
 
 async def _send(websocket: WebSocket, msg: dict) -> None:
