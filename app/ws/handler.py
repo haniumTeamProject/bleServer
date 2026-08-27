@@ -42,14 +42,26 @@ _TUNING_FIELDS = ("threshold", "min_next", "mode", "window_ms", "segments",
                   "forward_streak_need", "back_streak_need")
 _track_tuning: dict = {}
 
-# 안내를 **언제 말할지.** 판정 설정과 같은 방식으로 전역 하나다.
+# 안내를 **어디서·언제 말할지.** 판정 설정과 같은 방식으로 전역 하나다.
 #
-#     enabled=False   지금까지처럼 비콘에 닿는 순간 그 칸의 안내를 전부 말한다
-#     enabled=True    회전·횡단은 그 지점 speak_at_m 앞까지 미뤘다가 말한다
+# 축이 둘인데 서로 독립이다.
 #
-# 어느 비콘이 무엇을 말할지(배정)는 **둘 다 똑같다.** 입을 여는 시점만 다르다.
-# 실측에서 둘을 번갈아 걸어보려고 스위치로 뒀다.
-_cue_pacing: dict = {"enabled": False, "speed_mps": 1.2, "speak_at_m": 5.0}
+#     lead_steps   **어느 비콘이** 말하나 (배정)
+#                    1  한 칸 앞 비콘에서 (기본)
+#                    0  그 비콘에서 바로
+#
+#     straight_now 비콘 셋이 일직선인 자리에서만 앞당김을 한 칸 줄인다
+#                    일직선이면 판정이 비콘 중간에서 뒤집혀 한 칸 앞이
+#                    사실상 1.5칸 앞이 된다(cues.straight_owners 참고)
+#
+#     enabled      그 비콘 안에서 **언제** 입을 여나 (발화 시점)
+#                    False  비콘에 닿는 순간 그 칸의 안내를 전부
+#                    True   회전·횡단은 그 지점 speak_at_m 앞까지 미뤘다가
+#
+# `lead_steps`·`straight_now` 는 `enabled` 와 무관하게 늘 적용된다 — 배정은
+# 경로를 걸 때 한 번 정해지고, 발화 시점은 걷는 중에 재는 값이라 층위가 다르다.
+_cue_pacing: dict = {"enabled": False, "speed_mps": 1.2, "speak_at_m": 5.0,
+                     "lead_steps": 1, "straight_now": False}
 
 # 경로 진행 추적 — 비콘이 바뀌는 시점을 서버가 판단해서 폰에 음성 안내를 내려보내기 위한 것.
 # _filters와 마찬가지로 전역 하나라서 동시에 여러 명을 안내하지는 못함 (실측 도구 수준의 한계).
@@ -394,19 +406,29 @@ def _process_guide(data: dict) -> str:
             {"type": _GUIDE_TYPE, "event": "tuningSet", **_track_tuning}, ensure_ascii=False)
 
     if event == "setCuePacing":
-        # 안내 발화 시점. 판정 설정과 마찬가지로 **다음 경로부터** 적용된다.
+        # 안내 배정·발화 시점. 판정 설정과 마찬가지로 **다음 경로부터** 적용된다.
         global _cue_pacing
+        # 0 이 유효한 값이라 `or` 를 쓸 수 없다 — 안 오면 1, 오면 그 값.
+        lead = data.get("leadSteps")
+        try:
+            lead = 1 if lead is None else max(0, min(2, int(lead)))
+        except (TypeError, ValueError):
+            lead = 1
         _cue_pacing = {
             "enabled": bool(data.get("enabled")),
             "speed_mps": max(0.1, float(data.get("speedMps") or 1.2)),
             "speak_at_m": max(0.0, float(data.get("speakAtM") or 5.0)),
+            "lead_steps": lead,
+            "straight_now": bool(data.get("straightNow")),
         }
-        print(f"[안내] 발화 시점: {_cue_pacing}")
+        print(f"[안내] 배정·발화 시점: {_cue_pacing}")
         return json.dumps({
             "type": _GUIDE_TYPE, "event": "cuePacingSet",
             "enabled": _cue_pacing["enabled"],
             "speedMps": _cue_pacing["speed_mps"],
             "speakAtM": _cue_pacing["speak_at_m"],
+            "leadSteps": _cue_pacing["lead_steps"],
+            "straightNow": _cue_pacing["straight_now"],
         }, ensure_ascii=False)
 
     if event == "setFloor":

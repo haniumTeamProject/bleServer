@@ -275,6 +275,18 @@
     <!-- 발화 시점 — 어느 비콘이 무엇을 말할지는 그대로 두고, 그 안에서
          언제 입을 여는지만 바꾼다. 실측에서 둘을 번갈아 걸어보려고 스위치로 뒀다. -->
     <div class="map-bar" style="flex-wrap:wrap;">
+      <label>안내 배정
+        <select id="cueLeadInput">
+          <option value="1">한 칸 앞 비콘에서</option>
+          <option value="0">그 비콘에서 바로</option>
+        </select>
+      </label>
+      <label>직진 보정
+        <select id="cueStraightInput">
+          <option value="0">끔</option>
+          <option value="1">켬 — 일직선이면 그 비콘에서</option>
+        </select>
+      </label>
       <label>발화 시점
         <select id="cuePacingInput">
           <option value="0">기본 — 비콘에 닿으면 바로</option>
@@ -283,6 +295,21 @@
       </label>
       <label>걷는 속도(m/s) <input id="cueSpeedInput" type="number" value="1.2" step="0.1" min="0.2" style="width:70px;"></label>
       <label>남은 거리(m) <input id="cueSpeakAtInput" type="number" value="5" step="1" min="0" style="width:70px;"></label>
+    </div>
+    <div class="hint" style="margin:-4px 0 10px;">
+      <b>안내 배정</b>은 <b>어느 비콘이</b> 말할지입니다. <b>한 칸 앞</b>이 기본 —
+      코너에 있는 비콘에서 "꺾으세요"라고 하면 이미 지난 뒤라서요.
+      다만 비콘 간격이 넓으면 한 칸 앞이 15m 도 되는데, 그러면 그 사이 다른 코너를
+      여럿 지나고 정작 그 코너에서는 잊습니다. 그런 배치에서는 <b>그 비콘에서 바로</b>가
+      나을 수 있습니다. 도착 안내는 어느 쪽이든 마지막 비콘에 고정입니다.
+      아래 <b>비콘별 안내</b> 표가 고른 값으로 다시 그려지니 나란히 비교해 보세요.
+      <br>
+      <b>직진 보정</b>은 <b>한 칸 앞</b>을 골랐을 때만 뜻이 있습니다. 비콘 셋(직전·현재·다음)이
+      일직선으로 놓인 자리에서는 판정이 <b>두 비콘의 중간</b>에서 뒤집혀서, 한 칸 앞이
+      사실상 1.5칸 앞이 됩니다. 켜면 그런 칸에서만 앞당김을 한 칸 줄입니다(코너는 그대로).
+      표에서 <span style="color:#0a7">◂</span> 가 붙은 칸이 보정이 걸린 자리입니다.
+      <br>
+      아래 <b>발화 시점</b>은 <b>그 비콘 안에서 언제</b> 입을 여는지라 별개 축입니다.
     </div>
     <div class="hint" style="margin:-4px 0 10px;">
       <b>기본</b>은 비콘에 닿는 순간 그 칸의 안내를 전부 말합니다 — 회전 지점이 20m 뒤여도
@@ -1251,21 +1278,35 @@
           : '');
   }
 
+  // 마지막으로 그린 인자. 배정을 바꾸면 그대로 다시 부른다.
+  let navCueArgs = null;
+
+  function navRedrawCues() {
+    if (navCueArgs) navLoadCues(...navCueArgs);
+  }
+
   async function navLoadCues(floorId, destinationId, fromBeacon) {
     const box = document.getElementById('navCueTable');
     if (!box) return;
+    navCueArgs = [floorId, destinationId, fromBeacon];
     try {
       const from = fromBeacon ? `&from=${encodeURIComponent(fromBeacon)}` : '';
+      // 표와 실제 안내가 갈라지면 검수가 의미를 잃는다 — 화면에서 고른 배정을 그대로 넘긴다.
       const res = await fetch(
-        `/map-db/floors/${encodeURIComponent(floorId)}/cues?to=${encodeURIComponent(destinationId)}${from}`);
+        `/map-db/floors/${encodeURIComponent(floorId)}/cues?to=${encodeURIComponent(destinationId)}${from}&lead=${leadSteps()}&straight=${straightNow() ? 'true' : 'false'}`);
       const d = await res.json();
       if (!res.ok) { box.innerHTML = `<div class="hint">${d.error || '안내를 만들지 못했습니다.'}</div>`; return; }
+
+      // 보정이 걸린 칸. 그 칸의 안내가 왜 뒤로 밀렸는지 표에서 바로 보이게 한다.
+      const straightSet = new Set(d.straightSteps || []);
 
       const rows = (d.steps || []).map(s => {
         const k = x => JSON.stringify(x.map(c => c.kind));
         const diff = new Set([k(s.byDistance), k(s.byOwner), k(s.byHybrid)]).size > 1;
+        const mark = straightSet.has(s.seq)
+          ? ' <span style="color:#0a7;" title="직진 보정 — 이 칸은 앞당김을 한 칸 줄였습니다">◂</span>' : '';
         return `<tr${diff ? ' style="background:#fffbeb;"' : ''}>
-          <td style="padding:5px 8px;font-weight:600;">${s.seq}. ${s.beaconId}</td>
+          <td style="padding:5px 8px;font-weight:600;">${s.seq}. ${s.beaconId}${mark}</td>
           <td style="padding:5px 8px;color:#64748b;">${s.distM}m</td>
           <td style="padding:5px 8px;">${cueChips(s.byDistance)}</td>
           <td style="padding:5px 8px;">${cueChips(s.byOwner)}</td>
@@ -1288,7 +1329,8 @@
           <tbody>${rows}</tbody>
         </table>
         <div class="hint" style="margin-top:6px;">
-          노란 줄 = 두 방식이 다른 비콘 · 사건 ${(d.cues || []).length}개
+          노란 줄 = 두 방식이 다른 비콘 · 사건 ${(d.cues || []).length}개${
+            straightSet.size ? ` · <span style="color:#0a7;">◂</span> 직진 보정 ${straightSet.size}칸` : ''}
         </div>
         ${orphan('거리 방식', d.orphanDistance)}
         ${orphan('소유 방식', d.orphanOwner)}
@@ -1481,6 +1523,26 @@
   //
   // 배정(어느 비콘이 무엇을 말할지)은 이 값과 무관하다. 안내 표에 보이는 것은
   // 그대로이고, 입을 여는 시점만 달라진다.
+  function leadSteps() {
+    // 0 이 유효한 값이라 `||` 로 기본값을 주면 안 된다.
+    const v = parseInt(document.getElementById('cueLeadInput')?.value, 10);
+    return Number.isNaN(v) ? 1 : v;
+  }
+
+  function straightNow() {
+    return document.getElementById('cueStraightInput')?.value === '1';
+  }
+
+  // 직진 보정은 앞당김이 있을 때만 뜻이 있다. "그 비콘에서 바로"면 줄일 것이
+  // 없으므로 상자를 잠근다 — 켜 두면 뭔가 걸리는 줄 알게 된다.
+  function syncStraightInput() {
+    const el = document.getElementById('cueStraightInput');
+    if (!el) return;
+    const on = leadSteps() > 0;
+    el.disabled = !on;
+    el.style.opacity = on ? '' : '0.45';
+  }
+
   function pushCuePacing() {
     if (ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({
@@ -1488,6 +1550,8 @@
       enabled: document.getElementById('cuePacingInput').value === '1',
       speedMps: parseFloat(document.getElementById('cueSpeedInput').value) || 1.2,
       speakAtM: parseFloat(document.getElementById('cueSpeakAtInput').value) || 5,
+      leadSteps: leadSteps(),
+      straightNow: straightNow(),
     }));
   }
 
@@ -1507,7 +1571,19 @@
       pushCuePacing();
     });
   });
+
+  // 배정은 발화 시점과 독립이라 `syncCuePacingInputs` 로 잠기지 않는다.
+  // 대신 바꾸면 안내 표를 다시 그린다 — 눈으로 비교하려고 두는 값이라
+  // 다음 경로를 걸 때까지 기다리면 쓸모가 없다.
+  ['cueLeadInput', 'cueStraightInput'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', () => {
+      syncStraightInput();
+      pushCuePacing();
+      if (typeof navRedrawCues === 'function') navRedrawCues();
+    });
+  });
   syncCuePacingInputs();
+  syncStraightInput();
   ws.addEventListener('open', () => setTimeout(pushCuePacing, 140));
 
   // 창·구간은 "기존(trend)" 방식만 안 쓴다.

@@ -130,20 +130,41 @@ def get_route(floor_id: str, to: str, from_: str | None = Query(None, alias="fro
 
 @router.get("/floors/{floor_id}/cues")
 def get_route_cues(floor_id: str, to: str, from_: str | None = Query(None, alias="from"),
+                   lead: int | None = Query(None),
+                   straight: bool | None = Query(None),
                    db: Session = Depends(get_db)):
-    """어느 비콘에서 무슨 안내가 나가는지. **배정 방식 두 가지를 나란히 준다.**
+    """어느 비콘에서 무슨 안내가 나가는지. **배정 방식 세 가지를 나란히 준다.**
 
     안내 문구는 경로 노드가 정하고(코너·횡단·도착), 그것을 어느 비콘에서 말할지는
-    배정 규칙이 정한다. 규칙이 두 가지라 실제 배치에서 어느 쪽이 나은지 눈으로
-    비교해야 해서, 하나를 고르지 않고 둘 다 돌려준다.
+    배정 규칙이 정한다. 규칙이 셋이라 실제 배치에서 어느 쪽이 나은지 눈으로
+    비교해야 해서, 하나를 고르지 않고 다 돌려준다.
 
         거리   사건보다 여유(회전 2m·횡단 4m)만큼 앞선 마지막 비콘
-        소유   노드에서 가장 가까운 비콘의 한 칸 앞
+        소유   노드에서 가장 가까운 비콘의 `lead` 칸 앞      ← 실제 안내가 쓰는 것
         절충   한 칸 앞을 쓰되 10m 를 넘으면 거리 방식으로
+
+    `lead`·`straight` 를 안 주면 `/monitor` 에서 고른 값(`handler._cue_pacing`)을
+    쓴다. 화면 표와 실제 안내가 갈라지면 검수가 의미를 잃으므로 기본을 그쪽에
+    맞춘다.
+
+    `straightSteps` 는 직진 보정이 걸린 비콘 순번(1부터)이다. 표에서 그 칸의
+    안내가 왜 한 칸 뒤로 밀렸는지 보이게 하려고 같이 내보낸다.
 
     `orphan*` 은 그 방식으로 붙일 비콘을 못 찾은 사건이다. 비어 있어야 정상이고,
     남아 있으면 그 안내가 실제로는 안 나간다는 뜻이다.
     """
+    if lead is None or straight is None:
+        try:
+            from app.ws.handler import _cue_pacing
+            if lead is None:
+                lead = int(_cue_pacing.get("lead_steps", 1))
+            if straight is None:
+                straight = bool(_cue_pacing.get("straight_now", False))
+        except Exception:
+            pass
+    lead = max(0, min(2, 1 if lead is None else lead))
+    straight = bool(straight)
+
     try:
         source = DbMapSource(db)
         beacons = source.beacons(floor_id)
@@ -155,7 +176,9 @@ def get_route_cues(floor_id: str, to: str, from_: str | None = Query(None, alias
         result = cues.build(graph, route.node_ids, beacons,
                             source.beacon_match_radius_m(floor_id),
                             source.meters_per_px(floor_id),
-                            route.destination.name)
+                            route.destination.name, lead_steps=lead,
+                            straight_now=straight,
+                            landmarks=source.landmarks(floor_id))
     except MapDataError as e:
         return JSONResponse({"error": str(e)}, status_code=404)
 
@@ -166,6 +189,15 @@ def get_route_cues(floor_id: str, to: str, from_: str | None = Query(None, alias
     return {
         "from": start,
         "destination": route.destination.name,
+        "leadSteps": lead,
+        "straightNow": straight,
+        # 출발이 수직연결자면 첫 문장이 횡단이 아니라 "출구 방향으로…"가 된다.
+        "startConnector": (
+            {"id": result.start_connector.id, "name": result.start_connector.name,
+             "type": result.start_connector.type}
+            if result.start_connector else None),
+        # 화면은 1부터 센다(steps 의 seq). 내부 인덱스에 1 을 더해 맞춘다.
+        "straightSteps": [i + 1 for i in result.straight],
         "steps": [
             {"seq": s.seq, "beaconId": s.beacon_id, "distM": s.dist_m,
              "byDistance": [cue_json(c) for c in s.cues_by_distance],

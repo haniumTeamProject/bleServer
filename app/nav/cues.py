@@ -38,7 +38,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field, replace
 
-from app.nav.map_source import BeaconInfo, Graph, Node
+from app.nav.map_source import BeaconInfo, Graph, LandmarkInfo, Node
 from app.nav.route_engine import SAMPLE_STEP_M, turn_at
 
 # 코너보다 횡단을 더 앞당긴다(m). 손을 떼기 전에 준비할 시간이 필요하다.
@@ -53,10 +53,33 @@ LEAD_CROSS_M = 4.0
 MAX_LEAD_M = 10.0
 
 # 코너 없이 이만큼 이어지면 "계속 직진하세요"를 넣는다.
+#
+# **앞으로 이만큼 남았을 때** 말한다. 예전에는 12m 를 다 걸은 지점에서 나갔는데,
+# 그러면 이미 끝난 구간을 두고 "계속 직진하세요"를 하는 셈이라 안내가 아니라
+# 보고가 된다. 직진 안내의 값은 "한동안 아무 일 없다"를 미리 알려주는 데 있다.
 LONG_STRAIGHT_M = 12.0
+
+# 출발 비콘이 이 거리 안의 수직연결자와 가장 가까우면 "연결자에서 출발"로 본다.
+#
+# 가장 가깝다는 것만으로는 부족하다 — 층에 연결자가 하나뿐이면 30m 떨어진 비콘도
+# 그 연결자의 최근접 비콘이 된다. 엘리베이터 홀 정도의 범위로 자른다.
+#
+# 실측으로 정한 값이 아니다. 홀이 넓거나 비콘이 문에서 먼 배치라면 늘려야 한다.
+CONNECTOR_NEAR_M = 8.0
 
 # 이 각도 미만은 직진으로 본다.
 TURN_MIN_DEG = 30.0
+
+# 직진 보정 — 비콘 셋(과거·현재·미래)이 이 각도 미만으로 놓여 있으면 일직선으로 본다.
+#
+# 경로가 직선인지와는 다른 값이다. 여기서 보는 것은 **비콘의 배치**다. 판정이
+# 언제 뒤집히는지는 경로 모양이 아니라 두 비콘의 위치가 정하기 때문이다.
+#
+# 25도로 잡은 이유: 복도 폭(2m 남짓)에 비콘이 붙어 있고 간격이 5m 쯤이면,
+# 반대쪽 벽으로 건너뛰어도 각이 22도 안팎이다. 그 정도는 여전히 "직선 복도"라
+# 중간에서 판정이 뒤집힌다. 30도(TURN_MIN_DEG)까지 열면 실제 코너의 완만한
+# 쪽이 딸려 들어온다.
+STRAIGHT_MAX_DEG = 25.0
 
 
 @dataclass
@@ -92,17 +115,81 @@ class RouteCues:
     orphan_distance: list[Cue] = field(default_factory=list)
     orphan_owner: list[Cue] = field(default_factory=list)
     orphan_hybrid: list[Cue] = field(default_factory=list)
+    # 직진 보정이 걸린 비콘 순번. 표에 표시해서 왜 그 칸에 붙었는지 보이게 한다.
+    straight: list[int] = field(default_factory=list)
+    # 출발이 이 수직연결자였다면 그 연결자. 첫 안내 문장이 왜 다른지 드러낸다.
+    start_connector: LandmarkInfo | None = None
+
+
+# ---------------------------------------------------------------------------
+# 0) 수직연결자에서 출발하는가
+# ---------------------------------------------------------------------------
+def _connector_word(lm: LandmarkInfo) -> str:
+    """안내 문장에 쓸 이름. 종류를 모르면 등록된 이름을 그대로 쓴다."""
+    return {"elevator": "엘리베이터", "stairs": "계단"}.get(lm.type or "", lm.name or "출구")
+
+
+def connector_at_start(start_beacon_id: str, beacons: list[BeaconInfo],
+                       landmarks: list[LandmarkInfo],
+                       meters_per_px: float,
+                       near_m: float = CONNECTOR_NEAR_M) -> LandmarkInfo | None:
+    """출발 비콘이 **어느 수직연결자의 최근접 비콘**이면 그 연결자.
+
+    ── 왜 필요한가 ───────────────────────────────────────────────
+
+    층을 옮겨 와서 다시 경로를 걸 때, 사용자는 **엘리베이터에서 막 내린 상태**다.
+    벽을 짚고 있지 않다. 그런데 첫 안내가 횡단이면 "벽이 끊깁니다. 손을 떼고
+    직진하세요"가 나간다 — 짚은 적 없는 벽에서 손을 떼라는 말이 된다.
+
+    그 자리에서 사용자가 아는 방향은 하나뿐이다: **자기가 나온 문**. 그래서 그
+    문을 기준으로 말해야 한다("엘리베이터 출구 방향으로 직진하고…").
+
+    ── 판정 ──────────────────────────────────────────────────────
+
+    연결자마다 층 전체 비콘 중 가장 가까운 것을 찾는다. 그것이 출발 비콘이고
+    거리가 `near_m` 안이면 "그 연결자에서 출발"이다.
+
+    **경로에 오른 비콘이 아니라 층 전체를 본다.** 어느 비콘이 연결자 옆인지는
+    경로와 무관한 배치의 성질이다. 경로 비콘만 보면 같은 비콘이 경로에 따라
+    연결자 비콘이 됐다 안 됐다 한다.
+
+    가장 가깝다는 것만으로는 부족해서 `near_m` 으로 한 번 더 자른다 — 연결자가
+    하나뿐인 층에서는 아무리 멀어도 어떤 비콘 하나는 최근접이 되기 때문이다.
+    """
+    if not start_beacon_id or meters_per_px <= 0:
+        return None
+    best: LandmarkInfo | None = None
+    best_d = math.inf
+    for lm in landmarks:
+        if not lm.is_connector:
+            continue
+        near, near_d = None, math.inf
+        for b in beacons:
+            d = math.hypot(lm.x - b.x, lm.y - b.y) * meters_per_px
+            if d < near_d:
+                near, near_d = b, d
+        if near is None or near.id != start_beacon_id or near_d > near_m:
+            continue
+        # 출발 비콘이 두 연결자의 최근접일 수 있다(엘베와 계단이 나란한 홀).
+        # 그때는 더 가까운 쪽이 사용자가 나온 문일 가능성이 높다.
+        if near_d < best_d:
+            best, best_d = lm, near_d
+    return best
 
 
 # ---------------------------------------------------------------------------
 # 1) 노드에서 사건 뽑기
 # ---------------------------------------------------------------------------
 def extract(graph: Graph, node_ids: list[str], meters_per_px: float,
-            cross_edges: set[tuple[str, str]], destination: str = "목적지") -> list[Cue]:
+            cross_edges: set[tuple[str, str]], destination: str = "목적지",
+            start_connector: LandmarkInfo | None = None) -> list[Cue]:
     """경로 노드를 따라가며 안내할 사건을 순서대로 뽑는다.
 
     **비콘은 보지 않는다.** 여기서 나오는 것은 "경로의 몇 m 지점에서 무슨 일이
     일어나는가"뿐이고, 그것을 누가 알려줄지는 배정 단계가 정한다.
+
+    `start_connector` 가 있으면 **첫 노드에서 시작하는 횡단**을 연결자 기준
+    문장으로 바꾼다(`connector_at_start` 참고). 그 하나만 바뀌고 나머지는 같다.
     """
     nodes = [graph.node(n) for n in node_ids]
     pts: list[Node] = [n for n in nodes if n is not None]
@@ -115,10 +202,14 @@ def extract(graph: Graph, node_ids: list[str], meters_per_px: float,
         dist.append(dist[-1] + math.hypot(b.x - a.x, b.y - a.y) * meters_per_px)
 
     cues: list[Cue] = []
-    last_event_m = 0.0
     # 횡단 도달 안내가 이미 회전을 말한 노드. 여기서 또 "꺾으세요"를 내면
     # 같은 코너를 두 번 말하게 된다 — 실측 경로에서 실제로 그랬다.
     covered: set[str] = set()
+
+    # 아무 사건 없이 이어지는 구간 — (시작 노드 순번, 시작 m, 끝 m).
+    # 사건이 하나 날 때마다 하나가 닫히고 그 다음부터 새로 연다.
+    runs: list[tuple[int, float, float]] = []
+    run_i, run_m = 0, 0.0
 
     for i in range(len(pts)):
         node = pts[i]
@@ -128,23 +219,40 @@ def extract(graph: Graph, node_ids: list[str], meters_per_px: float,
         if i + 1 < len(pts):
             pair = (pts[i].id, pts[i + 1].id)
             if pair in cross_edges or (pair[1], pair[0]) in cross_edges:
-                cues.append(Cue("crossEnter", node.id, here, template=6,
-                                text="벽이 끊깁니다. 손을 떼고 직진하세요."))
                 # 건너편에서 꺾는지 — 다음 노드에서의 회전을 미리 실어준다
                 turn = None
                 if i + 2 < len(pts):
                     turn = turn_at(pts[i], pts[i + 1], pts[i + 2], TURN_MIN_DEG)
                 side = {"left": "왼쪽", "right": "오른쪽"}.get(turn or "")
-                # 진입과 도달이 서로 다른 비콘에 배정될 수 있다. 그때 도달 안내만
-                # 들으면 "벽에 도달하면"이 무슨 말인지 알 수 없으므로, 도달 문장도
-                # 벽이 끊긴다는 사실을 스스로 담는다.
-                cues.append(Cue("crossExit", pts[i + 1].id, dist[i + 1], direction=turn,
-                                template=7,
-                                text=(f"벽이 끊깁니다. 벽에 도달하면 {side}으로 꺾으세요."
-                                      if side else
-                                      "벽이 끊깁니다. 벽에 도달하면 다시 벽을 짚으세요.")))
+
+                if i == 0 and start_connector is not None:
+                    # 엘리베이터에서 막 내린 자리다. 짚은 적 없는 벽에서 손을
+                    # 떼라고 할 수 없으므로, 사용자가 아는 유일한 방향인
+                    # **자기가 나온 문**을 기준으로 한 문장으로 말한다.
+                    #
+                    # 진입/도달로 나누지 않는 이유도 같다 — 나누면 "벽이
+                    # 끊깁니다"가 두 번 나가는데, 여기엔 끊길 벽이 없다.
+                    word = _connector_word(start_connector)
+                    tpl = {"elevator": 8, "stairs": 9}.get(start_connector.type or "", 6)
+                    cues.append(Cue(
+                        "connectorExit", node.id, here, direction=turn, template=tpl,
+                        text=(f"{word} 출구 방향으로 직진하고, 벽이 나오면 {side}으로 꺾으세요."
+                              if side else
+                              f"{word} 출구 방향으로 직진하세요. 벽이 나오면 벽을 짚으세요.")))
+                else:
+                    cues.append(Cue("crossEnter", node.id, here, template=6,
+                                    text="벽이 끊깁니다. 손을 떼고 직진하세요."))
+                    # 진입과 도달이 서로 다른 비콘에 배정될 수 있다. 그때 도달 안내만
+                    # 들으면 "벽에 도달하면"이 무슨 말인지 알 수 없으므로, 도달 문장도
+                    # 벽이 끊긴다는 사실을 스스로 담는다.
+                    cues.append(Cue("crossExit", pts[i + 1].id, dist[i + 1], direction=turn,
+                                    template=7,
+                                    text=(f"벽이 끊깁니다. 벽에 도달하면 {side}으로 꺾으세요."
+                                          if side else
+                                          "벽이 끊깁니다. 벽에 도달하면 다시 벽을 짚으세요.")))
                 covered.add(pts[i + 1].id)
-                last_event_m = dist[i + 1]
+                runs.append((run_i, run_m, here))
+                run_i, run_m = i + 1, dist[i + 1]
                 continue
 
         # 회전 — 가운데 노드에서만 각도가 정의된다
@@ -154,14 +262,22 @@ def extract(graph: Graph, node_ids: list[str], meters_per_px: float,
                 side = "왼쪽" if turn == "left" else "오른쪽"
                 cues.append(Cue("turn", node.id, here, direction=turn, template=4,
                                 text=f"벽을 따라 {side}으로 꺾으세요."))
-                last_event_m = here
+                runs.append((run_i, run_m, here))
+                run_i, run_m = i, here
                 continue
 
-        # 장시간 직진 — 아무 사건 없이 오래 이어질 때만
-        if here - last_event_m >= LONG_STRAIGHT_M:
-            cues.append(Cue("straight", node.id, here, template=3,
+    # 마지막 구간은 도착에서 닫힌다
+    runs.append((run_i, run_m, dist[-1]))
+
+    # 장시간 직진 — **구간의 시작**에서 말한다.
+    #
+    # 예전에는 12m 를 다 걸은 지점에서 냈다. 그러면 이미 지나온 구간을 두고
+    # "계속 직진하세요"를 하는 셈이라, 사용자가 실제로 쓸 수 있는 정보가 없다.
+    # 구간 시작에서 내면 "여기서부터 한동안 아무 일 없다"는 예고가 된다.
+    for si, sm, em in runs:
+        if em - sm >= LONG_STRAIGHT_M:
+            cues.append(Cue("straight", pts[si].id, sm, template=3,
                             text="계속 직진하세요."))
-            last_event_m = here
 
     cues.append(Cue("arrive", pts[-1].id, dist[-1], template=12,
                     text=f"{destination}입니다."))
@@ -293,14 +409,101 @@ def nearest_owners(graph: Graph, node_ids: list[str], steps: list[StepInfo],
     return owner
 
 
+def _angle_deg(a: BeaconInfo, b: BeaconInfo, c: BeaconInfo) -> float | None:
+    """a→b 와 b→c 가 이루는 꺾임 각도. 겹쳐 있으면 `None`."""
+    v1 = (b.x - a.x, b.y - a.y)
+    v2 = (c.x - b.x, c.y - b.y)
+    n1 = math.hypot(*v1)
+    n2 = math.hypot(*v2)
+    if n1 == 0 or n2 == 0:
+        # 두 비콘이 같은 자리다. 방향이 없으니 직선인지 아닌지 말할 수 없다 —
+        # 모른다고 답하고, 부르는 쪽이 보정을 안 걸게 한다.
+        return None
+    cross = (v1[0] * v2[1] - v1[1] * v2[0]) / (n1 * n2)
+    dot = (v1[0] * v2[0] + v1[1] * v2[1]) / (n1 * n2)
+    return math.degrees(math.atan2(abs(cross), dot))
+
+
+def straight_owners(steps: list[StepInfo], beacons: list[BeaconInfo],
+                    max_deg: float = STRAIGHT_MAX_DEG) -> set[int]:
+    """**앞 비콘에서 말하면 너무 일찍 나가는** 비콘 순번들.
+
+    ── 왜 필요한가 ───────────────────────────────────────────────
+
+    추적기는 두 비콘의 RSSI 가 뒤집히는 순간에 다음 칸으로 넘어간다. 비콘이
+    일직선으로 놓여 있으면 그 뒤집힘은 **두 비콘의 중간**에서 일어난다. 세기가
+    거리만으로 정해지고, 가운데가 정확히 같은 거리이기 때문이다.
+
+    그래서 `B[i]` 소유 안내를 한 칸 앞(`B[i-1]`)에서 말하면, 그 말이 나가는 시점은
+    `B[i-1]` 에 닿았을 때가 아니라 `B[i-2]`–`B[i-1]` 의 중간이다. 결국 목표보다
+    **1.5칸 앞**에서 말하게 된다.
+
+        B[i-2] ─────●───── B[i-1] ────────── B[i]
+                   ↑ 여기서 이미 말한다        ↑ 실제 사건
+
+    코너에서는 이 일이 안 생긴다. 꺾이는 자리에서는 앞 비콘이 벽에 가려 빨리
+    죽고 다음 비콘이 코너를 돌아야 살아나서, 뒤집힘이 `B[i-1]` 쪽으로 당겨진다.
+    한 칸 앞이 실제로 한 칸 앞이 된다.
+
+    ── 그래서 무엇을 보는가 ──────────────────────────────────────
+
+    `B[i-2] · B[i-1] · B[i]` 셋의 **배치**가 일직선인지만 본다. 경로가 직선인지가
+    아니다. 뒤집히는 시점을 정하는 것은 경로 모양이 아니라 비콘 위치다.
+
+    ── 걸리지 않는 경우 ──────────────────────────────────────────
+
+        i < 2       앞이 없어 뒤집힘 자체가 없다. 출발 칸은 처음부터 잡혀 있다
+        위치 미상    비콘 목록에 없는 id — 각을 못 재므로 건드리지 않는다
+        겹친 비콘    방향이 안 나온다. 위와 같이 그대로 둔다
+
+    셋 다 "모르면 원래대로"다. 보정은 늦추는 쪽이라, 잘못 걸면 안내를 놓친다.
+    """
+    by_id = {b.id: b for b in beacons}
+    out: set[int] = set()
+    for i in range(2, len(steps)):
+        trio = [by_id.get(steps[j].beacon_id) for j in (i - 2, i - 1, i)]
+        if any(b is None for b in trio):
+            continue
+        deg = _angle_deg(*trio)          # type: ignore[arg-type]
+        if deg is not None and deg < max_deg:
+            out.add(i)
+    return out
+
+
 def assign_by_owner(steps: list[StepInfo], cues: list[Cue],
-                    owner: dict[str, int]) -> list[Cue]:
-    """그 노드를 지날 때 잡히던 비콘을 찾아, **한 칸 앞** 비콘에서 말한다.
+                    owner: dict[str, int], lead_steps: int = 1,
+                    straight: set[int] | frozenset[int] = frozenset()) -> list[Cue]:
+    """그 노드를 지날 때 잡히던 비콘을 찾아, **`lead_steps` 칸 앞** 비콘에서 말한다.
+
+    ── 몇 칸 앞에서 말할지 ───────────────────────────────────────
+
+        1 (기본)   한 칸 앞. 코너에 있는 비콘에서 "꺾으세요"라고 하면 이미 지난 뒤다
+        0          그 비콘에서 바로
+
+    비콘이 촘촘하면 1 이 맞다. 그런데 간격이 넓어지면 한 칸 앞이 15m 도 되는데,
+    그러면 사용자는 그 사이 다른 코너를 여럿 지나고 정작 그 코너에 닿았을 때는
+    잊는다. 그 배치에서는 0 이 나을 수 있다.
+
+    어느 쪽이 나은지는 **실제 비콘 배치에서 걸어봐야** 알 수 있다. 그래서 코드에
+    박지 않고 `/monitor` 에서 고르게 뒀다(판정 방식과 같은 방식).
+
+    거리·절충 방식은 이 값을 안 본다. 비교 기준으로 쓰려면 한쪽이 고정돼 있어야
+    하기 때문이다 — 셋이 다 같이 움직이면 무엇 때문에 달라졌는지 알 수 없다.
 
     `owner` 는 노드 id → 비콘 순번(steps 의 인덱스). 경로를 훑으며 만든 것이라
     직선거리로 고를 때 생기는 순서 뒤바뀜이 없다(ㄷ자 복도에서 반대편 비콘이
     더 가까운 경우 등).
+
+    ── 직진 보정 ─────────────────────────────────────────────────
+
+    `straight` 에 든 순번은 앞당김을 한 칸 줄인다(1 → 0). 그 자리에서는 판정이
+    비콘 중간에서 뒤집혀 한 칸 앞이 사실상 1.5칸 앞이 되기 때문이다
+    (`straight_owners` 참고). 비어 있으면 아무 일도 안 한다.
+
+    **줄이기만 하고 늘리지는 않는다.** `lead_steps=0` 으로 골라 뒀는데 보정이
+    음수로 끌고 가면 안 되고, 애초에 0 이면 앞당김이 없어 이 문제도 없다.
     """
+    lead_steps = max(0, int(lead_steps))
     orphans: list[Cue] = []
     for cue in cues:
         # 도착만은 앞당기지 않는다.
@@ -320,7 +523,8 @@ def assign_by_owner(steps: list[StepInfo], cues: list[Cue],
         if idx is None:
             orphans.append(cue)
             continue
-        target = idx - 1
+        lead = max(0, lead_steps - 1) if idx in straight else lead_steps
+        target = idx - lead
         if target < 0:
             target = 0      # 첫 비콘이면 출발 안내에 얹는 수밖에 없다
         steps[target].cues_by_owner.append(cue)
@@ -494,7 +698,7 @@ def collapse(cues: list[Cue]) -> list[Cue]:
 
     first = turns[0]
     merged = Cue("turnMulti", first.node_id, first.dist_m, template=5,
-                 text="벽을 따라 계속 가세요.")
+                 text="코너가 연속적으로 있습니다. 벽을 따라 계속 가세요.")
     out: list[Cue] = []
     for c in cues:
         if c.kind != "turn":
@@ -508,19 +712,39 @@ def collapse(cues: list[Cue]) -> list[Cue]:
 # 바깥에서 부르는 것
 # ---------------------------------------------------------------------------
 def build(graph: Graph, node_ids: list[str], beacons: list[BeaconInfo],
-          radius_m: float, meters_per_px: float, destination: str = "목적지") -> RouteCues:
-    """경로 하나에 대해 사건을 뽑고 두 방식으로 배정해 나란히 돌려준다."""
+          radius_m: float, meters_per_px: float, destination: str = "목적지",
+          lead_steps: int = 1, straight_now: bool = False,
+          landmarks: list[LandmarkInfo] | None = None) -> RouteCues:
+    """경로 하나에 대해 사건을 뽑고 세 방식으로 배정해 나란히 돌려준다.
+
+    `lead_steps` 와 `straight_now` 는 **소유 방식에만** 걸린다
+    (`assign_by_owner` 참고). 거리·절충은 비교 기준이라 고정이다 — 셋이 다 같이
+    움직이면 무엇 때문에 달라졌는지 알 수 없다.
+
+    `straight_now` 는 앞당김이 있을 때만 뜻이 있다. `lead_steps=0` 이면 줄일
+    것이 없으므로 계산 자체를 건너뛴다.
+
+    `landmarks` 를 주면 **출발이 수직연결자인지** 본다(`connector_at_start`).
+    안 주면 그 판정을 건너뛰고 예전대로 횡단 문장을 낸다 — 층 이동 없이 같은
+    층에서 걷는 경우가 대부분이라 없어도 틀리지 않는다.
+    """
     cross = {(e.a, e.b) for e in graph.edges if getattr(e, "type", "") == "cross"}
     steps, _walk_owner = walk_owners(graph, node_ids, beacons, radius_m, meters_per_px)
-    cues = extract(graph, node_ids, meters_per_px, cross, destination)
+    start_conn = (connector_at_start(steps[0].beacon_id, beacons, landmarks, meters_per_px)
+                  if landmarks and steps else None)
+    cues = extract(graph, node_ids, meters_per_px, cross, destination, start_conn)
     owner = nearest_owners(graph, node_ids, steps, beacons, meters_per_px)
+    straight = (straight_owners(steps, beacons)
+                if straight_now and lead_steps > 0 else frozenset())
     result = RouteCues(
         steps=steps,
         cues=cues,
         orphan_distance=assign_by_distance(steps, cues),
-        orphan_owner=assign_by_owner(steps, cues, owner),
+        orphan_owner=assign_by_owner(steps, cues, owner, lead_steps, straight),
         orphan_hybrid=assign_by_hybrid(steps, cues, owner),
     )
+    result.straight = sorted(straight)
+    result.start_connector = start_conn
     # 배정이 끝난 뒤에 접고 거리 표현을 붙인다 — 어느 비콘에 몇 개가 모였는지,
     # 그 비콘에서 얼마나 떨어진 일인지는 배정해봐야 안다.
     for st in result.steps:

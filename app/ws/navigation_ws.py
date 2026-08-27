@@ -952,7 +952,9 @@ def _build_cues(session: NavSession, plan, destination: str) -> list[list[Spoken
             result = cue_mod.build(
                 source.graph(plan.floor_id), plan.route.node_ids, beacons,
                 source.beacon_match_radius_m(plan.floor_id),
-                source.meters_per_px(plan.floor_id), destination)
+                source.meters_per_px(plan.floor_id), destination,
+                lead_steps=_lead_steps(), straight_now=_straight_now(),
+                landmarks=source.landmarks(plan.floor_id))
         finally:
             db.close()
     except Exception as e:
@@ -972,7 +974,13 @@ def _build_cues(session: NavSession, plan, destination: str) -> list[list[Spoken
             row.append(SpokenCue(text=c.text, base=base, lead_m=lead, kind=c.kind))
         by_step.append(row)
     spoken = sum(len(x) for x in by_step)
-    print(f"[nav {session.id}] 안내 {spoken}개 / {len(by_step)}칸"
+    lead = _lead_steps()
+    straight = getattr(result, "straight", [])
+    print(f"[nav {session.id}] 안내 {spoken}개 / {len(by_step)}칸 · "
+          + ("한 칸 앞" if lead == 1 else "그 비콘에서" if lead == 0 else f"{lead}칸 앞")
+          + (f" · 직진 보정 {len(straight)}칸" if straight else "")
+          + (f" · {result.start_connector.name}에서 출발"
+             if getattr(result, "start_connector", None) else "")
           + (f" · 미배정 {len(result.orphan_owner)}개" if result.orphan_owner else ""))
     return by_step
 
@@ -997,6 +1005,27 @@ def _pacing() -> dict:
         return _cue_pacing
     except Exception:
         return {}
+
+
+def _lead_steps() -> int:
+    """안내를 몇 칸 앞 비콘에 얹을지. 1 = 한 칸 앞(기본), 0 = 그 비콘에서 바로.
+
+    `_pacing()` 의 `enabled` 와 무관하다 — 그건 "언제 입을 여나"이고 이건
+    "어느 비콘이 말하나"라 층위가 다르다(`handler._cue_pacing` 주석 참고).
+    """
+    try:
+        return max(0, int(_pacing().get("lead_steps", 1)))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _straight_now() -> bool:
+    """비콘이 일직선인 자리에서 앞당김을 한 칸 줄일지.
+
+    끄는 쪽이 기본이다. 보정은 안내를 **늦추는** 방향이라, 잘못 걸리면 코너를
+    지난 뒤에 "꺾으세요"가 나간다. 실측으로 이득을 확인하고 켜는 게 맞다.
+    """
+    return bool(_pacing().get("straight_now", False))
 
 
 def _split_cues(session: NavSession, cues: list[SpokenCue],
