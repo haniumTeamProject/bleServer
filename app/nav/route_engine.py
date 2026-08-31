@@ -18,19 +18,6 @@
 뺀 **실제 거리**다 — 사용자에게 "48m 남았습니다"라고 말할 때 쓰는 값이므로
 가상 비용이 섞이면 안 된다.
 
-기본값은 `find_node_path` 의 인자에 10.0 으로 적혀 있지만 **실제로 도는 값은
-5.0** 이다. `build_route()` 가 `source.cross_penalty_m()` 을 넘기고, 그쪽이
-관리자웹 `PathNodePage.tsx` 의 기본값과 맞춰 5.0 을 준다.
-
-── 건너기에 걸리는 규칙은 둘이다 ────────────────────────────────────
-
-    ① 목적지 건너기 제한   목적지(landmark)에서 뻗는 건너기는 그 목적지가
-                          이번 경로의 출발지일 때만 쓴다
-    ② 단방향              a(입구·벽 끝) → b(맞은편) 으로만 간다
-
-둘 다 `pathfind.ts` 에 있고, 여기도 둘 다 있어야 한다. `find_node_path` 는
-한동안 ②만 있었다 — 자세한 것은 그 함수 주석.
-
 ── 왜 노드가 아니라 비콘인가 ────────────────────────────────────────
 
 경로 탐색은 노드 그래프에서 하지만, 앱에 내려주는 것은 비콘 순서다.
@@ -43,6 +30,7 @@ from __future__ import annotations
 
 import heapq
 import math
+import os
 from dataclasses import dataclass
 
 from app.nav.map_source import (
@@ -75,22 +63,40 @@ class PathfindResult:
     distance_px: float            # **페널티 포함** 가중치 합 — 실제 이동 거리와 다르다
 
 
+def cross_edge_usable(node_type: str | None, node_id: str, start_id: str) -> bool:
+    """그 건너기를 **지름길로 써도 되는가.** (`pathfind.ts` 의 `isCrossEdgeUsable`)
+
+    건너기는 "여기서 출발해 반대편으로 건너세요"라는 안내다. 그런데 그 시작점이
+    남의 목적지나 연결자 앞이면, **거기 있지도 않은 사람에게** 그 문 앞에서
+    건너라고 말하는 셈이 된다.
+
+    그래서 랜드마크·연결자에서 시작하는 건너기는 **그 지점에서 실제로 출발할
+    때만** 쓴다. 코너는 실제 출입구가 아니라 벽 모양이 만든 점이라 제약이 없다.
+
+    관리자웹이 이미 이 규칙으로 경로를 그린다. 서버만 빠져 있으면 화면에 그려진
+    경로와 안내에 쓰는 경로가 갈라져서 검수 자체가 의미를 잃는다.
+
+    `node_type` 이 없으면(테스트 픽스처 등) 제약을 안 건다 — 원본 TS 도
+    `undefined !== 'landmark'` 로 통과시킨다.
+    """
+    return node_type not in ("landmark", "connector") or node_id == start_id
+
+
 def find_shortest_path(nodes, edges, start_id: str, end_id: str,
                        cross_penalty_px: float) -> PathfindResult | None:
     """`WEB-FE/src/features/mapEditor/pathfind.ts` 를 그대로 옮긴 것.
-
-    **안내에는 안 쓴다.** 실제 경로는 `find_node_path()` 가 만든다. 이 함수는
-    `tests/test_path_nodes.py` 가 TS 원본 출력과 대조하는 데만 쓴다 — 관리자웹과
-    답이 갈리지 않는지 확인하는 자다.
 
     관리자웹이 화면에서 보여주는 경로와 **정확히 같은 답**을 내야 하므로 반환값의
     의미까지 원본을 따른다. `distance_px` 에 페널티가 섞여 있는 것도 원본 그대로다
     (사용자에게 말할 거리로 쓰면 안 된다 — 그건 `find_node_path` 의 `dist_m` 이다).
 
-    nodes/edges 는 dict 나 속성 접근이 되는 객체 아무거나 받는다. `type` 이나
-    `directed` 가 없으면 없는 대로 다룬다 — 옛 픽스처가 그 필드를 안 싣는다.
+    nodes/edges 는 dict 나 속성 접근이 되는 객체 아무거나 받는다.
     """
-    def get(o, k, default=None):
+    def get(o, k):
+        return o[k] if isinstance(o, dict) else getattr(o, k)
+
+    def opt(o, k, default=None):
+        """없어도 되는 필드. 픽스처는 `type`·`directed` 를 안 담는다."""
         if isinstance(o, dict):
             return o.get(k, default)
         return getattr(o, k, default)
@@ -108,13 +114,14 @@ def find_shortest_path(nodes, edges, start_id: str, end_id: str,
         dist = math.hypot(get(a, "x") - get(b, "x"), get(a, "y") - get(b, "y"))
         is_cross = get(e, "type") == "cross"
         weight = dist + cross_penalty_px if is_cross else dist
-
-        # ① 목적지 건너기는 그 목적지에서 출발할 때만 — isCrossEdgeUsable()
-        if is_cross and get(a, "type") == "landmark" and get(a, "id") != start_id:
+        # 남의 목적지 앞을 지름길로 가로지르지 않는다.
+        if is_cross and not cross_edge_usable(opt(a, "type"), get(a, "id"), start_id):
             continue
         adjacency[get(a, "id")].append((get(b, "id"), weight))
-        # ② 건너기는 단방향 — 관리자웹은 cross 를 항상 directed 로 만든다
-        if not get(e, "directed", False):
+        # **건너기는 단방향이다.** 맞은편(b)은 벽에서 떨어진 허공이라 거기서
+        # 출발할 자격이 없다. 한때 양방향으로 열어뒀는데, 그것은 코너 건너기가
+        # 생기기 전 이야기였고 지금 TS 는 `if (!e.directed)` 로 막는다.
+        if not opt(e, "directed", False):
             adjacency[get(b, "id")].append((get(a, "id"), weight))
 
     if start_id not in adjacency or end_id not in adjacency:
@@ -178,33 +185,19 @@ def find_node_path(graph: Graph, start_id: str, end_id: str,
         if e.a not in adj or e.b not in adj:
             continue
         is_cross = 1 if e.type == "cross" else 0
-
-        # ── ① 목적지 건너기는 그 목적지에서 출발할 때만 쓴다 ──────────
-        #
-        # 목적지 건너기는 "여기서 출발해 반대편으로 건너세요"라는 뜻이다.
-        # 그런데 무관한 두 지점 사이의 최단 경로가 지나가는 길에 **남의 방 문
-        # 앞을 지름길처럼 가로질러** 버리면, 그 목적지에 있지도 않은 사람에게
-        # 벽에서 손을 떼라는 안내가 나간다. 화면을 볼 수 없으면 확인할 방법이 없다.
-        #
-        # 연결자(계단·엘리베이터)는 원래 경로 중간에 정상적으로 거쳐가는 지점이라
-        # 이 제한을 두지 않는다.
-        #
-        # `pathfind.ts` 의 `isCrossEdgeUsable()` 과 같은 규칙이다. 재포팅할 때
-        # 아래 ②만 가져오고 이것을 빠뜨렸는데, 실측 4층 757쌍 중 **205쌍(27%)이
-        # 관리자웹과 다른 경로로 나가고 있었다.**
-        if is_cross:
-            a = graph.node(e.a)
-            if a is not None and a.type == "landmark" and a.id != start_id:
-                continue
-
         cost = e.dist_m + is_cross * cross_penalty_m
+        # 남의 목적지·연결자 앞의 건너기를 지름길로 쓰지 않는다
+        # (`cross_edge_usable` 참고 — 관리자웹 pathfind.ts 와 같은 규칙).
+        if is_cross:
+            a_node = graph.node(e.a)
+            if a_node is not None and not cross_edge_usable(
+                    getattr(a_node, "type", None), a_node.id, start_id):
+                continue
         adj[e.a].append((e.b, cost, e.dist_m, is_cross))
-
-        # ── ② 건너기는 단방향이다 ──────────────────────────────────
+        # **건너기는 단방향이다.** a(입구/벽 끝) → b(맞은편) 으로만 건넌다.
         #
-        # a(입구/벽 끝) → b(맞은편) 으로만 건넌다. 맞은편 지점은 벽에서 떨어진
-        # 허공이라 거기서 출발할 수가 없다. 벽을 만지며 걷는 사람에게 출발점은
-        # 반드시 벽에 붙어 있어야 한다.
+        # 맞은편 지점은 벽에서 떨어진 허공이라 거기서 출발할 수가 없다. 벽을
+        # 만지며 걷는 사람에게 출발점은 반드시 벽에 붙어 있어야 한다.
         #
         # 한때 양방향으로 열어뒀는데 **관리자웹과 다른 경로가 나왔다.**
         # pathfind.ts 는 `if (!e.directed)` 일 때만 역방향을 열고, 관리자웹은
@@ -278,6 +271,94 @@ def _walk(graph: Graph, node_ids: list[str], meters_per_px: float):
             yield (a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t), (a_id if t < 0.5 else b_id)
 
 
+def _pick_mode() -> str:
+    """비콘을 고르는 규칙. `BEACON_PICK=nearest` 로 옛 방식으로 되돌릴 수 있다."""
+    return (os.environ.get("BEACON_PICK") or "approach").strip().lower()
+
+
+def _seq_nearest(graph: Graph, node_ids: list[str], beacons: list[BeaconInfo],
+                 radius_m: float, meters_per_px: float) -> list[BeaconStep]:
+    """옛 방식 — 표본마다 **반경 안 가장 가까운 하나**를 고르고 연속 중복을 접는다.
+
+    **어느 표본에서도 1등을 못 하는 비콘은 영원히 안 들어온다.** 반경을 아무리
+    키워도 마찬가지다 — 옆에 더 가까운 것이 늘 있기 때문이다. 실측 1층 로비에서
+    홀 한가운데 비콘 넷이 이래서 통째로 빠졌다(반경 12m 로 올려도 그대로였다).
+
+    같은 비콘을 두 번 지나는 경로(ㄷ자)에서 **두 번 세는 것**은 이쪽만 된다.
+    """
+    steps: list[BeaconStep] = []
+    for (x, y), nid in _walk(graph, node_ids, meters_per_px):
+        best, best_d = None, math.inf
+        for b in beacons:
+            d = math.hypot(x - b.x, y - b.y) * meters_per_px
+            if d <= radius_m and d < best_d:
+                best, best_d = b, d
+        if best is None:
+            continue
+        if steps and steps[-1].beacon_id == best.id:
+            continue
+        steps.append(BeaconStep(seq=len(steps) + 1, beacon_id=best.id, node_id=nid))
+    return steps
+
+
+def _seq_approach(graph: Graph, node_ids: list[str], beacons: list[BeaconInfo],
+                  radius_m: float, meters_per_px: float) -> list[BeaconStep]:
+    """지금 방식 — **경로에 반경만큼 가까워지는 비콘을 전부**, 지나는 순서대로.
+
+    비콘마다 경로 위에서 **가장 가까워지는 지점**(최근접점)을 찾는다. 그 거리가
+    반경 안이면 경로에 세우고, 최근접점이 나오는 순서대로 늘어놓는다.
+
+    ── 왜 바꿨나 ─────────────────────────────────────────────────
+
+    옛 방식은 표본마다 1등 하나만 골라서, 넓은 홀처럼 **경로가 벽을 따라 도는데
+    비콘은 가운데 있는** 배치에서 그 비콘이 한 번도 안 뽑혔다. 1등을 못 한다는
+    이유만으로 6m 옆의 비콘이 통째로 사라지는 셈이다.
+
+    이쪽은 "지나가면서 이만큼 가까워졌나"만 보므로 그런 구멍이 없다. 반경이
+    실제로 반경으로 동작한다.
+
+    ── 잃는 것 ───────────────────────────────────────────────────
+
+    **연속 중복만 접히던 것이 통과 구간 단위로 바뀐다.** 옛 방식은 표본마다 1등을
+    보고 직전과 같으면 접었다. 이쪽은 비콘이 반경 안에 들어와 있던 구간을 하나로
+    묶으므로, 반경 밖으로 나갔다 다시 들어오면 두 칸이 된다 — 왕복 경로에서 같은
+    비콘을 두 번 세는 성질은 그대로다.
+
+    되돌리려면 `BEACON_PICK=nearest`.
+
+    ── 주의 ──────────────────────────────────────────────────────
+
+    경로에 세운다고 폰이 그 비콘을 **가장 세게** 잡는다는 보장은 없다. 걷는 내내
+    한 번도 1등을 못 하는 비콘이 경로에 끼면 추적기가 그 칸에서 멈춘다(실측 4층
+    B7 이 그랬다). 반경을 넓게 잡을수록 그 위험이 커진다.
+    """
+    samples = list(_walk(graph, node_ids, meters_per_px))
+
+    # 비콘마다 **반경 안에 들어와 있던 구간**을 끊어서 본다. 한 구간이 한 번
+    # 지나간 것이고, 그 구간에서 가장 가까웠던 표본이 그 칸의 자리다.
+    #
+    # 전체 최소 하나만 잡으면 왕복 경로에서 같은 비콘 옆을 두 번 지나도 한 칸이
+    # 된다. 두 번 지나는 것은 실제로 일어나는 일이라 두 번 세야 한다.
+    picks: list[tuple[int, float, str, str]] = []     # (표본 순번, 거리, 비콘, 노드)
+    for b in beacons:
+        run: tuple[int, float, str] | None = None     # 이번 통과의 최근접
+        for i, ((x, y), nid) in enumerate(samples):
+            d = math.hypot(x - b.x, y - b.y) * meters_per_px
+            if d <= radius_m:
+                if run is None or d < run[1]:
+                    run = (i, d, nid)
+            elif run is not None:
+                picks.append((run[0], run[1], b.id, run[2]))
+                run = None                            # 반경 밖으로 나갔다 — 한 번 지나감
+        if run is not None:
+            picks.append((run[0], run[1], b.id, run[2]))
+
+    # 최근접점 순서 = 지나가는 순서. 같은 표본이면 가까운 쪽을 먼저 만난 것으로 본다.
+    picks.sort(key=lambda p: (p[0], p[1]))
+    return [BeaconStep(seq=n + 1, beacon_id=bid, node_id=nid)
+            for n, (_i, _d, bid, nid) in enumerate(picks)]
+
+
 def to_beacon_sequence(graph: Graph, node_ids: list[str], beacons: list[BeaconInfo],
                        radius_m: float, meters_per_px: float) -> list[BeaconStep]:
     """경로가 지나는 비콘을 순서대로.
@@ -298,18 +379,10 @@ def to_beacon_sequence(graph: Graph, node_ids: list[str], beacons: list[BeaconIn
     **연속이 아닌 중복은 접지 않는다.** 왕복 경로에서 같은 비콘을 두 번 지나는
     것은 실제로 일어나는 일이고, 그때는 두 번 세는 것이 맞다.
     """
-    steps: list[BeaconStep] = []
-    for (x, y), nid in _walk(graph, node_ids, meters_per_px):
-        best, best_d = None, math.inf
-        for b in beacons:
-            d = math.hypot(x - b.x, y - b.y) * meters_per_px
-            if d <= radius_m and d < best_d:
-                best, best_d = b, d
-        if best is None:
-            continue
-        if steps and steps[-1].beacon_id == best.id:
-            continue
-        steps.append(BeaconStep(seq=len(steps) + 1, beacon_id=best.id, node_id=nid))
+    if _pick_mode() == "nearest":
+        steps = _seq_nearest(graph, node_ids, beacons, radius_m, meters_per_px)
+    else:
+        steps = _seq_approach(graph, node_ids, beacons, radius_m, meters_per_px)
     if steps:
         last = steps[-1]
         steps[-1] = BeaconStep(seq=last.seq, beacon_id=last.beacon_id,

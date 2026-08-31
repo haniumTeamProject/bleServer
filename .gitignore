@@ -9,3 +9,4 @@ _monitor_smoke_test.py
 
 measurements/
 .pytest_cache/
+.DS_Store

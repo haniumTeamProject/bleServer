@@ -355,6 +355,39 @@ def _cast_to_wall(mask, w: int, h: int, start: Point, d: Point) -> Point | None:
     return None
 
 
+def _segment_walkable(mask, w: int, h: int, a: Point, b: Point) -> bool:
+    """a 에서 b 까지 **직선이 통행영역 안에만 있는가.**
+
+    ── 왜 마지막에 다시 보는가 ───────────────────────────────────
+
+    맞은편 지점은 `_cast_to_wall` 로 찾으므로 **찾는 순간에는** 벽을 안 뚫는다.
+    문제는 그 뒤다.
+
+        1. `_snap_facing_to_wall` 이 그 점을 단순화된 벽선 위로 당긴다
+        2. `find_or_insert` 가 MERGE_RADIUS_PX 안의 기존 노드에 흡수시킨다
+
+    둘 다 점을 **옮긴다.** 옮겨진 끝점끼리 이으면 처음 쐈던 선이 아니고, 그 사이에
+    벽이 끼어 있을 수 있다. 실측 4층에서 B1→402 경로가 **계단실을 가로질러**
+    그려진 것이 이것이다 — 축도 맞고 길이도 12m 안이라 기존 검사를 다 통과했다.
+
+    ── 끝점은 빼고 본다 ──────────────────────────────────────────
+
+    양 끝은 벽선 위로 당겨져 있어서 그 픽셀 자체는 통행영역 밖으로 찍히는 것이
+    정상이다. 그래서 **사이만** 본다. 사이가 한 픽셀이라도 막혀 있으면 사람이
+    지나갈 수 없는 선이다.
+    """
+    dx = b[0] - a[0]
+    dy = b[1] - a[1]
+    steps = int(max(abs(dx), abs(dy)))
+    if steps <= 1:
+        return True
+    for i in range(1, steps):
+        t = i / steps
+        if not _is_walkable(mask, w, h, (a[0] + dx * t, a[1] + dy * t)):
+            return False
+    return True
+
+
 def _has_wall_within(mask, w: int, h: int, origin: Point, d: Point, max_px: float) -> bool:
     x, y = origin
     for _ in range(1, int(max_px) + 1):
@@ -674,7 +707,12 @@ def generate_path_nodes(mask, w: int, h: int,
             # 어긋난 노드에 흡수됐을 수 있어 마지막으로 한 번 더 거른다.
             if a.x != b.x and a.y != b.y:
                 continue
-            if math.hypot(a.x - b.x, a.y - b.y) <= crossing_max_px:
-                add_edge(a, b, "cross")
+            if math.hypot(a.x - b.x, a.y - b.y) > crossing_max_px:
+                continue
+            # **벽을 뚫는 건너기는 버린다.** 스냅·병합이 끝점을 옮겨서, 처음 쐈을
+            # 때는 뚫리지 않았던 선이 지금은 벽을 지날 수 있다(`_segment_walkable`).
+            if not _segment_walkable(mask, w, h, (a.x, a.y), (b.x, b.y)):
+                continue
+            add_edge(a, b, "cross")
 
     return PathGraph(nodes=nodes, edges=edges)

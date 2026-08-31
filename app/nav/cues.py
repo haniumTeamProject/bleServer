@@ -59,6 +59,14 @@ MAX_LEAD_M = 10.0
 # 보고가 된다. 직진 안내의 값은 "한동안 아무 일 없다"를 미리 알려주는 데 있다.
 LONG_STRAIGHT_M = 12.0
 
+# 직진 안내를 통째로 끄는 스위치. 실측에서 빼고 걸어보려고 둔다.
+#
+# 평소에는 켜 둔다. **겹치는 것만 골라내는 일은 `shift_straight()` 가 따로 한다** —
+# 문제였던 것은 직진 안내 자체가 아니라 다른 안내와 같은 칸에 몰리는 것이었다.
+#
+# 끄더라도 `runs` 는 그대로 계산한다. 껐다 켜도 다른 안내 위치가 안 변해야 비교가 된다.
+EMIT_STRAIGHT = True
+
 # 출발 비콘이 이 거리 안의 수직연결자와 가장 가까우면 "연결자에서 출발"로 본다.
 #
 # 가장 가깝다는 것만으로는 부족하다 — 층에 연결자가 하나뿐이면 30m 떨어진 비콘도
@@ -119,6 +127,10 @@ class RouteCues:
     straight: list[int] = field(default_factory=list)
     # 출발이 이 수직연결자였다면 그 연결자. 첫 안내 문장이 왜 다른지 드러낸다.
     start_connector: LandmarkInfo | None = None
+    # 그 연결자에서 나오는 방향 기준으로 첫 걸음이 어느 쪽인가(left|right|None).
+    start_side: str | None = None
+    # 다른 안내와 겹쳐서 버린 직진 안내 수(소유 방식 기준). 로그로만 쓴다.
+    straight_dropped: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +139,67 @@ class RouteCues:
 def _connector_word(lm: LandmarkInfo) -> str:
     """안내 문장에 쓸 이름. 종류를 모르면 등록된 이름을 그대로 쓴다."""
     return {"elevator": "엘리베이터", "stairs": "계단"}.get(lm.type or "", lm.name or "출구")
+
+
+def _eul_reul(word: str) -> str:
+    """받침이 있으면 `을`, 없으면 `를`.
+
+    "엘리베이터를 등지고" / "계단을 등지고" — 조사가 틀리면 TTS 가 어색하게 읽고,
+    화면을 볼 수 없는 사용자에게는 그 어색함이 곧 알아듣기 어려움이 된다.
+
+    한글이 아닌 글자로 끝나면(영문 이름 등) `를` 로 둔다. 맞히려면 읽는 법을
+    알아야 하는데 그것까지 볼 일은 아니다.
+    """
+    if not word:
+        return "를"
+    ch = word[-1]
+    if not ("가" <= ch <= "힣"):
+        return "를"
+    return "을" if (ord(ch) - 0xAC00) % 28 else "를"
+
+
+def side_from_connector(lm: LandmarkInfo, graph: Graph, node_ids: list[str],
+                        min_deg: float = TURN_MIN_DEG) -> str | None:
+    """연결자에서 **나오는 방향을 기준으로** 다음 노드가 왼쪽인가 오른쪽인가.
+
+    ── 기준이 왜 이것인가 ────────────────────────────────────────
+
+    "왼쪽 벽을 짚으세요"의 왼쪽은 **사용자가 지금 향한 쪽** 기준이다. 엘리베이터에서
+    막 나온 사람이 향한 쪽은 문에서 복도로 나오는 방향이고, 그것은 연결자 좌표에서
+    첫 경로노드로 가는 벡터다.
+
+        f = 첫 노드 - 연결자        나오면서 향하는 방향
+        v = 다음 노드 - 첫 노드      이제 가야 하는 방향
+
+    `f` 를 기준으로 `v` 가 어느 쪽으로 벌어지는지가 답이다.
+
+    한때 **첫 회전 방향**을 썼는데 근거가 약했다. 30m 앞의 코너가 왼쪽이라고 해서
+    지금 짚을 벽이 왼쪽이라는 보장이 없다. 이쪽은 지금 서 있는 자리의 기하다.
+
+    ── 애매하면 `None` ───────────────────────────────────────────
+
+        곧장 앞      벌어진 각이 `min_deg` 미만 — 어느 쪽도 아니다
+        연결자가 첫 노드 위   `f` 가 0 이라 향한 쪽을 모른다
+        노드가 둘 미만        비교할 것이 없다
+
+    **화면 좌표라 y 가 아래로 증가한다.** 그래서 `cross > 0` 이 오른쪽이다
+    (`route_engine.turn_at` 과 같은 규칙). 뒤집으면 왼쪽이라고 해놓고 오른쪽
+    벽으로 보내는데, 화면을 볼 수 없는 사용자는 확인할 방법이 없다.
+    """
+    pts = [graph.node(n) for n in node_ids[:2]]
+    if len(pts) < 2 or any(p is None for p in pts):
+        return None
+    n0, n1 = pts
+    f = (n0.x - lm.x, n0.y - lm.y)
+    v = (n1.x - n0.x, n1.y - n0.y)
+    nf, nv = math.hypot(*f), math.hypot(*v)
+    if nf == 0 or nv == 0:
+        return None
+    cross = (f[0] * v[1] - f[1] * v[0]) / (nf * nv)
+    dot = (f[0] * v[0] + f[1] * v[1]) / (nf * nv)
+    if math.degrees(math.atan2(abs(cross), dot)) < min_deg:
+        return None
+    return "right" if cross > 0 else "left"
 
 
 def connector_at_start(start_beacon_id: str, beacons: list[BeaconInfo],
@@ -230,15 +303,39 @@ def extract(graph: Graph, node_ids: list[str], meters_per_px: float,
                     # 떼라고 할 수 없으므로, 사용자가 아는 유일한 방향인
                     # **자기가 나온 문**을 기준으로 한 문장으로 말한다.
                     #
+                    # **첫 경로노드에서 시작하는 횡단만** 바꾼다.
+                    #
+                    # 한때 "앞에 다른 사건이 없으면"(`not cues`)으로 넓혔다가 되돌렸다.
+                    # 사건이 없어도 노드를 몇 개 지났으면 그동안 벽을 따라 걸은
+                    # 것이고, 그 사람에게 "엘리베이터를 등지고"는 이미 지나간
+                    # 기준점이다. 등질 엘리베이터가 등 뒤에 없다.
+                    #
+                    # 첫 노드에서 바로 건너는 경우에만 사용자가 아직 문 앞에 서 있다.
+                    # 노드를 지나고 나서 만나는 횡단은 평소 문구가 맞고, 벽을 짚기
+                    # 시작하는 안내는 출발 문장이 따로 한다
+                    # (`navigation_ws._connector_opening`).
+                    #
                     # 진입/도달로 나누지 않는 이유도 같다 — 나누면 "벽이
                     # 끊깁니다"가 두 번 나가는데, 여기엔 끊길 벽이 없다.
                     word = _connector_word(start_connector)
                     tpl = {"elevator": 8, "stairs": 9}.get(start_connector.type or "", 6)
                     cues.append(Cue(
-                        "connectorExit", node.id, here, direction=turn, template=tpl,
-                        text=(f"{word} 출구 방향으로 직진하고, 벽이 나오면 {side}으로 꺾으세요."
-                              if side else
-                              f"{word} 출구 방향으로 직진하세요. 벽이 나오면 벽을 짚으세요.")))
+                        "connectorExit", node.id, here, template=tpl,
+                        text=f"{word}{_eul_reul(word)} 등지고 곧장 걸어가세요."))
+                    # 건너편 안내는 평소와 같은 자리·같은 종류로 둔다.
+                    #
+                    # 한 문장으로 합치지 않는 이유는 **시점이 다르기 때문**이다.
+                    # "등지고 걸어가세요"는 지금 할 일이고 "벽이 나오면 꺾으세요"는
+                    # 반대편에 닿아서 할 일이라, 붙여 말하면 20m 앞의 회전을 지금
+                    # 하라는 말로 들린다. 평소 횡단이 진입·도달로 나뉘어 있는 것과
+                    # 같은 이유다.
+                    #
+                    # `crossExit` 를 그대로 쓰므로 배정·여유(LEAD_CROSS_M)가 평소와
+                    # 같다. 앞이 `crossEnter` 가 아니라 `merge_crossing` 도 안 건드린다.
+                    cues.append(Cue("crossExit", pts[i + 1].id, dist[i + 1], direction=turn,
+                                    template=7,
+                                    text=(f"벽이 나오면 {side}으로 꺾으세요." if side else
+                                          "벽이 나오면 벽을 짚으세요.")))
                 else:
                     cues.append(Cue("crossEnter", node.id, here, template=6,
                                     text="벽이 끊깁니다. 손을 떼고 직진하세요."))
@@ -275,6 +372,8 @@ def extract(graph: Graph, node_ids: list[str], meters_per_px: float,
     # "계속 직진하세요"를 하는 셈이라, 사용자가 실제로 쓸 수 있는 정보가 없다.
     # 구간 시작에서 내면 "여기서부터 한동안 아무 일 없다"는 예고가 된다.
     for si, sm, em in runs:
+        if not EMIT_STRAIGHT:
+            break
         if em - sm >= LONG_STRAIGHT_M:
             cues.append(Cue("straight", pts[si].id, sm, template=3,
                             text="계속 직진하세요."))
@@ -708,6 +807,53 @@ def collapse(cues: list[Cue]) -> list[Cue]:
     return out
 
 
+def shift_straight(rows: list[list[Cue]]) -> list[Cue]:
+    """다른 안내와 **같은 칸에 몰린 직진 안내**를 한 칸 뒤로 미루거나 버린다.
+
+    돌려주는 것은 버린 것들이다. 제자리에서 `rows` 를 고친다.
+
+    ── 왜 ────────────────────────────────────────────────────────
+
+    "계속 직진하세요"는 **할 일이 없다는 말**이다. 그런데 회전이나 횡단과 같은 칸에
+    붙으면 한 숨에 이어 나간다.
+
+        조금 뒤 벽을 따라 오른쪽으로 꺾으세요. 계속 직진하세요.
+
+    꺾으라는 건지 직진하라는 건지 서로 부딪힌다. 화면을 볼 수 없는 사용자는
+    되물을 수도 없어서, 둘 중 무엇을 따라야 하는지 그 자리에서 판단해야 한다.
+
+    직진 안내는 **셋 중 가장 덜 급한 것**이다. 회전·횡단은 놓치면 길을 잃지만
+    직진은 놓쳐도 하던 대로 걸으면 된다. 그래서 이쪽이 물러난다.
+
+    ── 어디로 물러나나 ───────────────────────────────────────────
+
+        다음 칸이 비어 있다        거기로 옮긴다
+        다음 칸에도 안내가 있다     버린다
+        다음 칸이 없다(마지막)      버린다
+
+    **한 칸만 본다.** 계속 밀면 원래 알리려던 구간을 다 지나고 나서 "계속
+    직진하세요"가 나온다 — 그럴 바에는 안 하는 것이 낫다.
+
+    마지막 칸은 도착 안내가 있어서 자연히 버려진다. 도착 직전에 "계속 직진하세요"는
+    어차피 할 말이 아니다.
+    """
+    dropped: list[Cue] = []
+    for i, row in enumerate(rows):
+        straights = [c for c in row if c.kind == "straight"]
+        if not straights or len(straights) == len(row):
+            continue                      # 혼자 있으면 그대로 둔다
+        row[:] = [c for c in row if c.kind != "straight"]
+        nxt = rows[i + 1] if i + 1 < len(rows) else None
+        if nxt is None or nxt:
+            # 다음 칸이 없거나 이미 뭔가 있다. 그 칸에 이미 직진 안내가 있는
+            # 경우도 여기 들어온다 — 같은 말을 두 번 할 이유가 없다.
+            dropped.extend(straights)
+        else:
+            nxt.append(straights[0])
+            dropped.extend(straights[1:])
+    return dropped
+
+
 # ---------------------------------------------------------------------------
 # 바깥에서 부르는 것
 # ---------------------------------------------------------------------------
@@ -743,8 +889,15 @@ def build(graph: Graph, node_ids: list[str], beacons: list[BeaconInfo],
         orphan_owner=assign_by_owner(steps, cues, owner, lead_steps, straight),
         orphan_hybrid=assign_by_hybrid(steps, cues, owner),
     )
+    # 배정이 끝난 뒤에 겹침을 푼다. 어느 칸에 몰렸는지는 배정해봐야 안다.
+    result.straight_dropped = len(shift_straight([st.cues_by_owner for st in result.steps]))
+    shift_straight([st.cues_by_distance for st in result.steps])
+    shift_straight([st.cues_by_hybrid for st in result.steps])
+
     result.straight = sorted(straight)
     result.start_connector = start_conn
+    result.start_side = (side_from_connector(start_conn, graph, node_ids)
+                         if start_conn else None)
     # 배정이 끝난 뒤에 접고 거리 표현을 붙인다 — 어느 비콘에 몇 개가 모였는지,
     # 그 비콘에서 얼마나 떨어진 일인지는 배정해봐야 안다.
     for st in result.steps:

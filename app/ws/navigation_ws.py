@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 import uuid
 from dataclasses import dataclass
@@ -138,6 +139,15 @@ CUE_MAX_HOLD_MS = 20_000
 # 신호는 초당 수십 개씩 들어오므로, 5초 동안 하나도 없으면 정말 안 들리는 것이다.
 BEACON_STALE_MS = 5_000
 
+# 이 종류가 출발 칸의 첫 안내면 "손이 닿는 벽을 짚고 걸어주세요"를 빼고 시작한다.
+#
+# 넷 다 **벽을 짚고 있지 않은 상태**를 전제한다. 짚으라고 해놓고 곧바로 손을 떼라고
+# 하면 사용자는 어느 쪽을 따라야 할지 모른다. `connectorExit` 는 아예 짚을 벽이
+# 없는 자리다(엘리베이터에서 막 내린 상태).
+#
+# `cross` 는 `merge_crossing` 이 진입·도달을 한 문장으로 합쳤을 때의 종류다.
+_NO_WALL_START = ("crossEnter", "crossExit", "cross", "connectorExit")
+
 
 @dataclass(frozen=True)
 class SpokenCue:
@@ -213,6 +223,11 @@ class NavSession:
         # 실제로 그 층에 내린 것을 가리는 데 쓴다.
         self.floor_since: int = 0
 
+        # 이 구간이 수직연결자에서 출발하면 출발 안내에 덧붙일 문장.
+        # 구간마다 다시 계산된다(`_build_cues`) — 엘리베이터에서 내려 시작하는
+        # 것은 대개 두 번째 구간이다.
+        self.connector_opening: str | None = None
+
         # 마지막으로 칸이 바뀐 시각. 표 17번(정지 지속)이 이걸 본다.
         self.last_advance_at: int = 0
         # 이번 정지 구간에서 이미 물어봤는가. 30초마다 되묻지 않으려고 둔다.
@@ -266,6 +281,7 @@ class NavSession:
         self.plan = None
         self.cues = []
         self.due = []
+        self.connector_opening = None
         self.legs = []
         self.leg_index = 0
         self.awaiting_floor = None
@@ -301,7 +317,6 @@ def _now_ms() -> int:
 # 비콘은 초당 열 번씩 들어와서 그대로 찍으면 로그가 그것만으로 가득 찬다.
 # 대신 몇 초에 한 번 요약을 남겨서 "들어오고는 있다"는 것만 확인되게 한다.
 # ---------------------------------------------------------------------------
-import os
 
 # 비콘 RSSI 요약 로그. 0 이면 아예 안 찍는다.
 #
@@ -924,6 +939,50 @@ def _transition_message(session: NavSession, t: dict) -> list[dict]:
                 haptic="guide", screen=screen_of(None, None, step, total))]
 
 
+def _connector_opening(result) -> str | None:
+    """연결자에서 출발할 때 **출발 안내에 덧붙일 한 문장.** 아니면 `None`.
+
+    ── 왜 따로 만드나 ────────────────────────────────────────────
+
+    엘리베이터에서 내린 사람은 벽을 짚고 있지 않다. 그래서 "손이 닿는 벽을 짚고
+    걸어주세요"가 성립하지 않는다 — 어느 벽인지가 없다. 어느 쪽을 짚어야 하는지
+    까지 말해줘야 한다.
+
+        평소     ○○호로 안내합니다. 손이 닿는 벽을 짚고 걸어주세요.
+        연결자   ○○호로 안내합니다. 엘리베이터에서 나와 왼쪽 벽을 짚고 직진하세요.
+
+    ── 첫 경로노드가 바로 횡단이면 `None` ────────────────────────
+
+    그때는 `connectorExit`(표 8·9번)이 이미 "엘리베이터를 등지고 곧장 걸어가세요"를
+    말한다. 여기서 또 내면 같은 이야기가 두 번 나간다. 그래서 **그 안내가 실제로
+    만들어졌는지**를 본다 — 조건을 여기에 다시 적으면 두 곳이 갈라진다.
+
+    ── 왼쪽·오른쪽은 어떻게 정하나 ───────────────────────────────
+
+    `cues.side_from_connector()` 가 정한다. 연결자에서 첫 경로노드로 나오는 방향을
+    기준으로, 그 다음 노드가 어느 쪽으로 벌어지는지를 본다. 지금 서 있는 자리의
+    기하라서 "30m 앞 코너가 왼쪽" 같은 먼 근거보다 확실하다.
+
+    벽이 어느 쪽에 있는지를 **직접 아는 값은 여전히 없다**(`Landmark.door_side` 는
+    DB 에 컬럼이 없다). 가야 할 쪽에 벽이 있으리라는 가정이 하나 들어간다.
+    각이 30도 미만이면(곧장 앞) 방향을 빼고 "벽을 짚고 직진하세요"만 말한다 —
+    모르는 쪽을 찍어 말하면 사용자가 반대편 벽으로 걸어간다.
+    """
+    lm = getattr(result, "start_connector", None)
+    if lm is None:
+        return None
+    if any(c.kind == "connectorExit" for c in result.cues):
+        return None          # 횡단 쪽 문장이 이미 같은 이야기를 한다
+
+    from app.nav import cues as cue_mod
+
+    word = cue_mod._connector_word(lm)
+    side = {"left": "왼쪽", "right": "오른쪽"}.get(getattr(result, "start_side", None) or "")
+    if side:
+        return f"{word}에서 나와 {side} 벽을 짚고 직진하세요."
+    return f"{word}에서 나와 벽을 짚고 직진하세요."
+
+
 def _build_cues(session: NavSession, plan, destination: str) -> list[list[SpokenCue]]:
     """경로 노드에서 안내 문구를 뽑아 **칸 번호대로** 늘어놓는다.
 
@@ -949,9 +1008,10 @@ def _build_cues(session: NavSession, plan, destination: str) -> list[list[Spoken
         try:
             source = DbMapSource(db)
             beacons = source.beacons(plan.floor_id)
+            radius = source.beacon_match_radius_m(plan.floor_id)
             result = cue_mod.build(
                 source.graph(plan.floor_id), plan.route.node_ids, beacons,
-                source.beacon_match_radius_m(plan.floor_id),
+                radius,
                 source.meters_per_px(plan.floor_id), destination,
                 lead_steps=_lead_steps(), straight_now=_straight_now(),
                 landmarks=source.landmarks(plan.floor_id))
@@ -973,12 +1033,17 @@ def _build_cues(session: NavSession, plan, destination: str) -> list[list[Spoken
             base = c.text[len(phrase):] if phrase and c.text.startswith(phrase) else c.text
             row.append(SpokenCue(text=c.text, base=base, lead_m=lead, kind=c.kind))
         by_step.append(row)
+    session.connector_opening = _connector_opening(result)
     spoken = sum(len(x) for x in by_step)
     lead = _lead_steps()
     straight = getattr(result, "straight", [])
-    print(f"[nav {session.id}] 안내 {spoken}개 / {len(by_step)}칸 · "
+    # 반경은 층마다 다를 수 있다(BEACON_MATCH_RADIUS_BY_FLOOR). 경로에서 비콘이
+    # 빠졌을 때 이 값을 모르면 원인을 못 찾는다.
+    print(f"[nav {session.id}] 안내 {spoken}개 / {len(by_step)}칸 · 반경 {radius:.1f}m · "
           + ("한 칸 앞" if lead == 1 else "그 비콘에서" if lead == 0 else f"{lead}칸 앞")
           + (f" · 직진 보정 {len(straight)}칸" if straight else "")
+          + (f" · 겹친 직진 {result.straight_dropped}개 버림"
+             if getattr(result, "straight_dropped", 0) else "")
           + (f" · {result.start_connector.name}에서 출발"
              if getattr(result, "start_connector", None) else "")
           + (f" · 미배정 {len(result.orphan_owner)}개" if result.orphan_owner else ""))
@@ -1303,15 +1368,44 @@ def _start_leg(session: NavSession) -> list[dict]:
     # 두 번째 구간부터는 "손이 닿는 벽을 짚고 걸어주세요"를 다시 말하지 않는다.
     # 이미 그러고 있는 사람에게 반복하면 새 지시로 들린다. 대신 **최종 목적지를
     # 다시 짚어준다** — 층을 옮기는 동안 어디로 가는 중이었는지 잊기 쉽다.
-    if first_leg:
-        opening = [f"{name}로 안내합니다. 손이 닿는 벽을 짚고 걸어주세요."]
+    #
+    # 첫 안내가 횡단이면 첫 구간이라도 뺀다. 짚으라고 해놓고 곧바로 "손을 떼고
+    # 직진하세요"가 이어지면 두 지시가 맞부딪힌다. 연결자에서 출발할 때는 더
+    # 분명하다 — 엘리베이터에서 막 내린 자리에는 짚을 벽이 아예 없다.
+    start_cues = _cues_for_step(session, session.tracker.index + 1)
+    hands_off = bool(start_cues) and start_cues[0].kind in _NO_WALL_START
+    # 왜 그렇게 정했는지 남긴다. 문구가 빠지면 "왜 안 나오지"를 로그 없이는
+    # 알 수 없고, 빠지는 게 맞는데 틀린 줄 알고 고치면 더 나빠진다.
+    head = f"{name}로 안내합니다." if first_leg else f"{name}로 계속 안내합니다."
+
+    # 연결자에서 출발하면 구간 번호보다 그쪽을 먼저 본다.
+    #
+    # **엘리베이터에서 내려 시작하는 것은 대개 두 번째 구간이다.** `first_leg` 를
+    # 먼저 보면 "계속 안내합니다"만 나가고, 정작 지금 막 내린 사람에게 어느 벽을
+    # 짚어야 하는지는 아무도 안 알려준다.
+    if session.connector_opening:
+        opening = [f"{head} {session.connector_opening}"]
+        why = "연결자"
+    elif not first_leg:
+        opening = [head]
+        why = "두 번째 구간"
+    elif hands_off:
+        # 짚으라고 해놓고 곧바로 "손을 떼고 직진하세요"가 이어지면 두 지시가
+        # 맞부딪힌다. 횡단 문장이 스스로 무엇을 할지 다 말한다.
+        opening = [head]
+        why = "첫 안내가 횡단"
     else:
-        opening = [f"{name}로 계속 안내합니다."]
+        opening = [f"{head} 손이 닿는 벽을 짚고 걸어주세요."]
+        why = "평소"
+
+    # 왜 그 문장을 골랐는지 남긴다. 문구가 빠지면 "왜 안 나오지"를 로그 없이는
+    # 알 수 없고, 빠지는 게 맞는데 틀린 줄 알고 고치면 더 나빠진다.
+    print(f"[nav] {session.id} 출발 문구 — {why} "
+          f"(1번칸 {[c.kind for c in start_cues] or '안내 없음'})")
 
     # 출발 칸의 안내도 늦출 수 있다. 다만 출발 문장 자체는 지금 말한다.
     session.due = []
-    say_now, later = _split_cues(session, _cues_for_step(session, session.tracker.index + 1),
-                                 _now_ms())
+    say_now, later = _split_cues(session, start_cues, _now_ms())
     session.due = later
     opening += say_now
 
@@ -1473,14 +1567,34 @@ def on_cancel(session: NavSession, _data: dict) -> list[dict]:
 
 
 def on_resume(session: NavSession, _data: dict) -> list[dict]:
-    """재연결. 지금 상태를 다시 알려준다."""
+    """재연결. 지금 상태를 다시 알려준다.
+
+    ── 안내 중이 아니면 말하지 않는다 ────────────────────────────
+
+    이 핸들러는 **소켓이 열린 뒤에만** 불린다. 그 소켓은 열리자마자
+    `navigation_endpoint` 가 "목적지를 말씀해 주세요"를 이미 보냈다(listenAfter
+    포함). 여기서 같은 문장을 또 내면 폰이 두 번 연달아 말한다.
+
+    실측 로그에서 한 소켓이 1초 안에 세 번 말했다 — ready · resume · list.
+    셋이 서로 다른 경로라 서로가 뭘 말했는지 모른다.
+
+        → ready   말="목적지를 말씀해 주세요." 마이크엶
+        → resume  말="목적지를 말씀해 주세요." 마이크엶   ← 여기
+        → list    말="목적지를 말씀해 주세요." 마이크엶
+
+    `listenAfter` 는 그대로 둔다. 말은 안 해도 마이크는 열려 있어야 폰이 다음
+    말을 받는다 — 상태를 알려주는 것이 이 핸들러의 일이고, 말하는 것은 아니다.
+
+    안내 중일 때는 그대로 말한다. 그 문장은 `ready` 와 다르고, 재연결한 사용자가
+    "아직 안내 중이구나"를 확인할 유일한 통로다.
+    """
     if session.destination and session.plan:
         snap = session.tracker.snapshot() or {}
         return [out("resume", "navigating",
                     utterance=f"{session.destination.name}로 안내 중입니다.",
                     screen=screen_of(session.destination.name, None,
                                      snap.get("number"), snap.get("total")))]
-    return [out("resume", "ready", utterance="목적지를 말씀해 주세요.", listen_after=True)]
+    return [out("resume", "ready", utterance=None, listen_after=True)]
 
 
 HANDLERS = {

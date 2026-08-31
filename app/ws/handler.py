@@ -544,11 +544,24 @@ def _attach_route(msg: dict, landmark: landmark_matcher.Landmark,
 
     `from_beacon` 은 출발점을 손으로 지정할 때만 쓴다(`/monitor` 에서 폰 없이
     시험할 때). 실제 안내에서는 안 온다 — 폰이 올린 RSSI 로 정한다.
+
+    ── 층을 반드시 같이 넘긴다 ───────────────────────────────────
+
+    안 넘기면 `plan_route` 가 `landmarks` 테이블에서 층을 읽는데, **연결자는 그
+    테이블에 없다.** 계단·엘리베이터는 `connectors` 라는 다른 표에 있고
+    `DbMapSource.landmarks()` 가 조회할 때만 합쳐서 내보낸다. 그래서 예전에는
+    `/monitor` 에서 엘리베이터를 고르면 **언제나** 이렇게 끊겼다.
+
+        목적지를 DB 에서 찾을 수 없습니다: c611f077-...
+
+    방 번호는 landmarks 에 있으니 멀쩡히 되고 연결자만 죽어서, 목적지 해석이
+    잘못된 것처럼 보였다.
     """
     try:
         plan = navigation.plan_route(landmark.id, list(_filters.keys()), _filters,
                                      from_beacon_id=from_beacon,
-                                     beacon_ids=_beacon_ids)
+                                     beacon_ids=_beacon_ids,
+                                     floor_id=_current_floor_id())
     except MapDataError as e:
         msg["routeError"] = str(e)
         print(f"[경로] 만들지 못함: {str(e).splitlines()[0]}")

@@ -46,6 +46,7 @@ import base64
 import hashlib
 import io
 import math
+import os
 
 from PIL import Image
 from sqlalchemy.orm import Session
@@ -93,6 +94,46 @@ CROSS_PENALTY_M = 5.0        # 이만큼 이상 절약될 때만 건넌다
 #
 # 더 줄이면 경로 위 비콘까지 빠져서 안내 간격이 벌어진다. 2.0m 가 그 경계다.
 BEACON_MATCH_RADIUS_M = 3.0
+
+# ── 층마다 다른 값이 필요하다 ──────────────────────────────────────
+#
+# 위 실측은 **좁은 복도**(4층) 이야기다. 넓은 홀은 정반대 문제가 난다.
+#
+# 경로는 벽을 따라 돈다 — 벽을 짚고 걷는 사람을 위한 안내라서 그렇게 만든다.
+# 그런데 홀 한가운데 세운 비콘은 그 벽선에서 5~10m 떨어져 있어, 3m 반경으로는
+# **한 번도 안 걸린다.** 실측 1층 로비에서 가운데 비콘 넷이 통째로 빠졌다.
+#
+# 좁은 복도에서 반경을 키우면 옆 복도 비콘이 딸려 들어오고, 넓은 홀에서 줄이면
+# 가운데 비콘이 사라진다. 한 값으로 둘 다 맞출 수가 없다.
+#
+# 그래서 층마다 따로 준다. DB 컬럼과 관리자웹 입력칸을 만드는 것이 맞지만
+# 그건 마이그레이션이 필요해서, 우선 환경변수로 뺀다.
+#
+#     BEACON_MATCH_RADIUS_M=3.0
+#     BEACON_MATCH_RADIUS_BY_FLOOR="<층id>=8.0,<다른층id>=2.5"
+#
+# **기본값은 안 건드린다.** 안 적은 층은 예전 그대로 3.0m 로 돌아서, 이 값을
+# 쓰지 않으면 아무것도 달라지지 않는다.
+def _radius_default() -> float:
+    try:
+        return max(0.1, float(os.environ.get("BEACON_MATCH_RADIUS_M", "")
+                              or BEACON_MATCH_RADIUS_M))
+    except ValueError:
+        return BEACON_MATCH_RADIUS_M
+
+
+def _radius_by_floor() -> dict[str, float]:
+    out: dict[str, float] = {}
+    for part in (os.environ.get("BEACON_MATCH_RADIUS_BY_FLOOR") or "").split(","):
+        key, sep, val = part.partition("=")
+        if not sep:
+            continue
+        try:
+            out[key.strip()] = max(0.1, float(val))
+        except ValueError:
+            # 오타 하나 때문에 안내 전체가 죽으면 안 된다. 그 층만 기본값으로 둔다.
+            print(f"[map] 비콘 반경 설정을 못 읽음 — 무시함: {part!r}")
+    return out
 
 # 마스크를 푼 결과를 들고 있는다. {floor_id: (해시, 비트, 폭, 높이)}
 # 마스크 내용이 키라서, 관리자가 고치면 자동으로 다시 만든다.
@@ -307,7 +348,12 @@ class DbMapSource:
         return CROSS_PENALTY_M
 
     def beacon_match_radius_m(self, floor_id: str) -> float:
-        return BEACON_MATCH_RADIUS_M
+        """이 층에서 "경로 위 비콘"으로 칠 거리. 위 상수 주석 참고.
+
+        환경변수는 **매번 읽는다.** 실측 중에 값을 바꿔 서버만 다시 띄우면 되고,
+        어디에 캐시가 남아 헷갈릴 일이 없다. 문자열 파싱 몇 번이라 비용도 없다.
+        """
+        return _radius_by_floor().get(floor_id, _radius_default())
 
     # -- 마스크 ------------------------------------------------------------
     def _mask_bits(self, floor_id: str):

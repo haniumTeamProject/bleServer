@@ -19,7 +19,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.nav.cues import (  # noqa: E402
     CONNECTOR_NEAR_M, Cue, StepInfo, assign_by_owner, collapse,
-    connector_at_start, extract, finalize, straight_owners,
+    connector_at_start, extract, finalize, side_from_connector, shift_straight,
+    straight_owners,
 )
 from app.nav.map_source import (  # noqa: E402
     BeaconInfo, Edge, Graph, LandmarkInfo, Node,
@@ -120,6 +121,14 @@ def cross_middle():
     return graph_of([Node(id="N0", x=0, y=0), Node(id="N1", x=100, y=0),
                      Node(id="N2", x=200, y=0), Node(id="N3", x=200, y=200)],
                     ["corridor", "cross", "corridor"])
+
+
+def turn_then_cross():
+    """회전을 한 번 한 뒤에 횡단이 온다. 그때는 이미 벽을 짚은 상태다."""
+    return graph_of([Node(id="P0", x=0, y=0), Node(id="P1", x=200, y=0),
+                     Node(id="P2", x=200, y=200), Node(id="P3", x=200, y=400),
+                     Node(id="P4", x=400, y=400)],
+                    ["corridor", "corridor", "cross", "corridor"])
 
 
 def conn_fixture():
@@ -229,6 +238,30 @@ def main() -> int:
     cs = extract(g, ids, MPP, set(), "410호")
     check(not [c for c in cs if c.kind == "straight"], "12m 미만이면 안 낸다")
 
+    print("\n── 겹친 직진 안내 (shift_straight) ──")
+
+    def cue(kind):
+        return Cue(kind, "N", 0.0, text=kind)
+
+    rows = [[cue("turn"), cue("straight")], [], []]
+    check(shift_straight(rows) == [] and [c.kind for c in rows[1]] == ["straight"],
+          "다음 칸이 비면 옮긴다", str([[c.kind for c in r] for r in rows]))
+
+    rows = [[cue("turn"), cue("straight")], [cue("turn")], []]
+    check(len(shift_straight(rows)) == 1 and [c.kind for c in rows[1]] == ["turn"],
+          "다음 칸도 차 있으면 버린다", str([[c.kind for c in r] for r in rows]))
+
+    rows = [[cue("turn"), cue("straight")], [cue("straight")]]
+    check(len(shift_straight(rows)) == 1 and len(rows[1]) == 1,
+          "다음 칸에 직진이 있어도 버린다 — 두 번 말할 이유가 없다")
+
+    rows = [[], [cue("turn"), cue("straight")]]
+    check(len(shift_straight(rows)) == 1, "마지막 칸이면 버린다")
+
+    rows = [[cue("straight")], [cue("turn")]]
+    check(shift_straight(rows) == [] and [c.kind for c in rows[0]] == ["straight"],
+          "혼자 있으면 그대로 둔다")
+
     print("\n── 연속 코너 문구 ──")
     st = StepInfo(seq=1, beacon_id="B1", dist_m=0.0)
     two = [Cue("turn", "N1", 5.0, direction="left", template=4, text="벽을 따라 왼쪽으로 꺾으세요."),
@@ -255,22 +288,59 @@ def main() -> int:
 
     lift = extract(g, ids, MPP, {("N0", "N1")}, "410호", start_connector=elev)
     kinds = [c.kind for c in lift]
-    check(kinds[0] == "connectorExit" and "crossEnter" not in kinds and "crossExit" not in kinds,
-          "연결자면 한 문장으로 대치", str(kinds))
-    check(lift[0].text == "엘리베이터 출구 방향으로 직진하고, 벽이 나오면 오른쪽으로 꺾으세요.",
+    check(kinds[0] == "connectorExit" and "crossEnter" not in kinds,
+          "진입 문장이 연결자 것으로 바뀐다", str(kinds))
+    check(lift[0].text == "엘리베이터를 등지고 곧장 걸어가세요.",
           "  엘리베이터 문구", lift[0].text)
     check(lift[0].dist_m == 0.0, "  출발 지점에 둔다 — 내리자마자 들어야 한다")
     check(lift[0].template == 8, "  표 8번(엘리베이터)", str(lift[0].template))
 
+    # 도달 안내는 평소와 같은 자리·같은 종류로 남는다. 시점이 다르기 때문이다 —
+    # 붙여 말하면 건너편의 회전을 지금 하라는 말로 들린다.
+    check(kinds[1] == "crossExit", "  도달은 crossExit 로 따로", str(kinds))
+    check(lift[1].text == "벽이 나오면 오른쪽으로 꺾으세요.", "  도달 문구", lift[1].text)
+    check(lift[1].dist_m > 0.0, "  도달은 건너편 노드에", f"{lift[1].dist_m}m")
+
     st9 = extract(g, ids, MPP, {("N0", "N1")}, "410호", start_connector=stair)
-    check(st9[0].text.startswith("계단 출구 방향으로"), "계단 문구", st9[0].text)
+    check(st9[0].text == "계단을 등지고 곧장 걸어가세요.", "계단 문구(받침 → 을)", st9[0].text)
     check(st9[0].template == 9, "  표 9번(계단)", str(st9[0].template))
 
-    print("\n── 중간의 횡단은 그대로 ──")
+    print("\n── 조사 ──")
+    from app.nav.cues import _eul_reul
+    for w, want in (("엘리베이터", "를"), ("계단", "을"), ("문", "을"), ("로비", "를"),
+                    ("EV", "를"), ("", "를")):
+        check(_eul_reul(w) == want, f"  {w or '(빈 문자열)'} → {want}", _eul_reul(w))
+
+    print("\n── 첫 경로노드가 아니면 안 바꾼다 ──")
     g, ids = cross_middle()
     mid = extract(g, ids, MPP, {("N1", "N2")}, "410호", start_connector=elev)
-    check("crossEnter" in [c.kind for c in mid] and "connectorExit" not in [c.kind for c in mid],
-          "첫 노드에서 시작하는 횡단만 바꾼다", str([c.kind for c in mid]))
+    check("connectorExit" not in [c.kind for c in mid],
+          "N1→N2 횡단은 이미 벽을 따라 걸은 뒤", str([c.kind for c in mid]))
+
+    g, ids = turn_then_cross()
+    aft = extract(g, ids, MPP, {("P2", "P3")}, "410호", start_connector=elev)
+    check("connectorExit" not in [c.kind for c in aft],
+          "회전을 한 뒤의 횡단도 평소 문구", str([c.kind for c in aft]))
+
+    print("\n── 나오는 방향 기준 좌우 (side_from_connector) ──")
+    # 엘베가 (0,-100), 첫 노드가 (0,0) → +y 를 향해 나온다.
+    # 화면좌표라 y 가 아래로 증가하므로 +x 로 꺾는 것이 왼쪽이다.
+    lift = LandmarkInfo(id="C9", name="엘베", x=0, y=-100,
+                        type="elevator", is_connector=True)
+    gl, il = graph_of([Node(id="N0", x=0, y=0), Node(id="N1", x=300, y=0)])
+    gr, ir = graph_of([Node(id="N0", x=0, y=0), Node(id="N1", x=-300, y=0)])
+    gs, iss = graph_of([Node(id="N0", x=0, y=0), Node(id="N1", x=0, y=300)])
+    check(side_from_connector(lift, gl, il) == "left", "다음 노드가 왼쪽",
+          str(side_from_connector(lift, gl, il)))
+    check(side_from_connector(lift, gr, ir) == "right", "다음 노드가 오른쪽",
+          str(side_from_connector(lift, gr, ir)))
+    check(side_from_connector(lift, gs, iss) is None, "곧장 앞이면 어느 쪽도 아니다")
+
+    on_node = LandmarkInfo(id="C8", name="엘베", x=0, y=0,
+                           type="elevator", is_connector=True)
+    check(side_from_connector(on_node, gl, il) is None,
+          "연결자가 첫 노드 위면 향한 쪽을 모른다")
+    check(side_from_connector(lift, gl, il[:1]) is None, "노드가 하나면 잴 것이 없다")
 
     print("\n" + "=" * 60)
     if fails:

@@ -9,6 +9,7 @@
 관리자가 도구에서 확인한 경로와 사용자가 안내받는 경로가 다르면 검수가 무의미해진다.
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -18,7 +19,8 @@ from app.nav.map_source import (  # noqa: E402
     BeaconInfo, Edge, Graph, Node,
 )
 from app.nav.route_engine import (  # noqa: E402
-    annotate_turns, estimated_seconds, find_node_path, to_beacon_sequence, turn_at,
+    annotate_turns, cross_edge_usable, estimated_seconds, find_node_path,
+    to_beacon_sequence, turn_at,
 )
 
 
@@ -70,6 +72,69 @@ def main() -> int:
     r = find_node_path(g, "C", "A", 0.0)
     check(r is not None and len(r.node_ids) == 3,
           "역방향에서는 건너기를 못 쓴다", f"{r.node_ids if r else None}")
+
+    # ── 1등을 못 해도 반경 안이면 경로에 든다 ─────────────────────
+    #
+    # 경로가 벽을 따라 도는데 비콘이 홀 가운데 있는 배치. 옛 방식(nearest)은
+    # 표본마다 1등 하나만 골라서 가운데 비콘이 **반경을 아무리 키워도** 안 들어왔다.
+    print("\n── 홀 가운데 비콘 (BEACON_PICK) ──")
+    hall = Graph(nodes=[Node("H0", 0, 0), Node("H1", 600, 0)],
+                 edges=[Edge("H0", "H1", 30.0, "wall")])
+    hb = [BeaconInfo("B1", 0, 20), BeaconInfo("B2", 200, 20),
+          BeaconInfo("B3", 400, 20), BeaconInfo("B4", 600, 20),
+          BeaconInfo("T1", 200, 120), BeaconInfo("T2", 400, 120)]
+
+    def hall_seq(mode: str, radius: float) -> list[str]:
+        old = os.environ.get("BEACON_PICK")
+        os.environ["BEACON_PICK"] = mode
+        try:
+            return [s.beacon_id
+                    for s in to_beacon_sequence(hall, ["H0", "H1"], hb, radius, 0.05)]
+        finally:
+            if old is None:
+                os.environ.pop("BEACON_PICK", None)
+            else:
+                os.environ["BEACON_PICK"] = old
+
+    check(hall_seq("nearest", 8.0) == ["B1", "B2", "B3", "B4"],
+          "옛 방식은 8m 로 키워도 가운데를 못 넣는다", str(hall_seq("nearest", 8.0)))
+    check(hall_seq("approach", 8.0) == ["B1", "B2", "T1", "B3", "T2", "B4"],
+          "지금 방식은 지나는 순서대로 넣는다", str(hall_seq("approach", 8.0)))
+    check(hall_seq("approach", 3.0) == ["B1", "B2", "B3", "B4"],
+          "반경 밖이면 지금 방식도 안 넣는다", str(hall_seq("approach", 3.0)))
+
+    # ── 남의 목적지 앞을 가로지르지 않는다 ────────────────────────
+    #
+    # 건너기 안내는 "여기서 출발해 반대편으로 건너세요"다. 그 시작점이 남의
+    # 목적지나 연결자 앞이면, 거기 있지도 않은 사람에게 그 문 앞에서 건너라고
+    # 말하는 셈이 된다. 관리자웹 pathfind.ts 의 isCrossEdgeUsable 과 같은 규칙.
+    print("\n── 목적지·연결자 앞 건너기 제한 ──")
+    check(cross_edge_usable("corner", "N1", "N9"), "코너는 언제나 건널 수 있다")
+    check(cross_edge_usable(None, "N1", "N9"), "종류를 모르면 막지 않는다")
+    check(not cross_edge_usable("landmark", "N1", "N9"), "남의 목적지 앞은 못 쓴다")
+    check(not cross_edge_usable("connector", "N1", "N9"), "남의 연결자 앞도 못 쓴다")
+    check(cross_edge_usable("landmark", "N1", "N1"), "거기서 출발하면 쓸 수 있다")
+    check(cross_edge_usable("connector", "N1", "N1"), "  연결자도 마찬가지")
+
+    # S ─wall─ L ─cross─ T,  S ─wall─ D ─wall─ T (멀리 도는 길)
+    # L 이 목적지 노드라 건너기를 못 쓰고 멀리 돌아야 한다.
+    def shortcut(l_type: str) -> list[str] | None:
+        g2 = Graph(
+            nodes=[Node("S", 0, 0), Node("L", 10, 0, type=l_type),
+                   Node("T", 20, 0), Node("D", 0, 100)],
+            edges=[Edge("S", "L", 1.0, "wall"),
+                   Edge("L", "T", 1.0, "cross", directed=True),
+                   Edge("S", "D", 5.0, "wall"), Edge("D", "T", 5.0, "wall")],
+        )
+        r2 = find_node_path(g2, "S", "T", 0.0)
+        return r2.node_ids if r2 else None
+
+    check(shortcut("corner") == ["S", "L", "T"], "코너면 지름길로 건넌다",
+          str(shortcut("corner")))
+    check(shortcut("landmark") == ["S", "D", "T"], "목적지 앞이면 돌아간다",
+          str(shortcut("landmark")))
+    check(shortcut("connector") == ["S", "D", "T"], "연결자 앞이면 돌아간다",
+          str(shortcut("connector")))
 
     # ── 못 가는 경우 ──────────────────────────────────────────────
     print("\n── 길이 없을 때 ──")
