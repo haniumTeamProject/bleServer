@@ -41,6 +41,7 @@ from app.floorplan.models import Floorplan  # noqa: E402
 from app.landmark.models import Landmark  # noqa: E402
 from app.mask.models import FloorMask  # noqa: E402
 from app.nav.db_map_source import DESIGN_W  # noqa: E402
+from tests.pathnode_seed import seed_path_nodes  # noqa: E402
 from tests.seed_from_project import gray_alpha_png  # noqa: E402
 
 OK, BAD = "✓", "✗"
@@ -87,7 +88,6 @@ def main() -> int:
     import app.ws.navigation as navmod
     navmod.SessionLocal = S
     dms._MASK_CACHE.clear()
-    dms._GRAPH_CACHE.clear()
 
     d = json.loads(project.read_text(encoding="utf-8"))
     w, h = d["workW"], d["workH"]
@@ -107,6 +107,8 @@ def main() -> int:
         db.add(Landmark(id=f"lm{i}", floor_id=FLOOR_ID, name=lm["name"],
                         x=lm["x"] * k, y=lm["y"] * k))
     db.commit()
+    # 서버는 저장된 경로노드만 쓴다. 관리자가 저장해둔 상태를 만들어 준다.
+    seed_path_nodes(db, FLOOR_ID)
     db.close()
 
     from app.ws import navigation_ws

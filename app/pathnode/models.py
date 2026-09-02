@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, Integer, String
+from sqlalchemy import JSON, Float, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -18,3 +18,14 @@ class FloorPathNodes(Base):
     mask_h: Mapped[int | None] = mapped_column(Integer, nullable=True)
     nodes: Mapped[list | None] = mapped_column(JSON, nullable=True)
     edges: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
+    # 관리자가 경로노드 화면에서 정한 값. 그래프를 만들 때 쓴 값(crossing_max_m)과
+    # 경로를 고를 때 쓸 값(cross_penalty_m)을 같이 남긴다.
+    #
+    # crossing_max_m 은 서버가 계산에 쓰지는 않는다 — 간선은 이미 만들어져 저장된
+    # 상태다. 화면을 다시 열었을 때 저장 당시 값으로 되돌아가야 하고, 이 그래프가
+    # 어떤 값으로 만들어졌는지 나중에 알 수 있어야 해서 같이 보관한다.
+    #
+    # 컬럼이 생기기 전에 저장된 행은 NULL 이다. 읽는 쪽에서 기본값으로 대체한다.
+    cross_penalty_m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    crossing_max_m: Mapped[float | None] = mapped_column(Float, nullable=True)

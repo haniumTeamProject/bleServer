@@ -67,18 +67,15 @@ from app.nav.map_source import (
     MapDataError,
     Node,
 )
-from app.nav.path_nodes import EntrancePoint, generate_path_nodes
 from app.pathnode.models import FloorPathNodes
 
 # 관리자웹이 쓰는 설계도 좌표 기준 폭. WEB-FE/src/lib/constants.ts 의 MAP_DESIGN_W.
 # 여기서 바꾸면 프론트와 갈라지므로 같이 고쳐야 한다.
 DESIGN_W = 900
 
-# 관리자웹 경로노드 화면의 기본값 (PathNodePage.tsx).
-# 관리자가 화면에서 바꿀 수 있는 값인데 DB 에 저장하는 자리가 없어서, 지금은
-# 서버도 같은 기본값을 쓴다. 화면에서 바꾼 값을 서버가 따르게 하려면 컬럼이 필요하다.
-CROSSING_MAX_M = 12.0        # 이보다 넓으면 건너기를 만들지 않는다
-CROSS_PENALTY_M = 5.0        # 이만큼 이상 절약될 때만 건넌다
+# 관리자가 경로노드 화면에서 값을 정하지 않고 저장한(또는 컬럼이 생기기 전에 저장된)
+# 층에 쓰는 기본값. 관리자웹 PathNodePage.tsx 의 DEFAULT_CROSS_PENALTY_M 과 같아야 한다.
+CROSS_PENALTY_M = 5.0        # 우회 대비 이만큼 이상 짧아야 건넌다
 
 # 경로 선에서 이 거리 안에 있는 비콘만 경로에 세운다.
 #
@@ -93,6 +90,28 @@ CROSS_PENALTY_M = 5.0        # 이만큼 이상 절약될 때만 건넌다
 #     1.5m   5칸   B1 B31 B20 B21 B22               ← B18·B19 까지 잃어 구간이 벌어짐
 #
 # 더 줄이면 경로 위 비콘까지 빠져서 안내 간격이 벌어진다. 2.0m 가 그 경계다.
+#
+# ── 위 표는 옛 규칙 것이다 ────────────────────────────────────────
+#
+# 저 실측은 `_seq_nearest`(표본마다 1등 하나만) 시절 것이다. 그때는 반경을 키우면
+# 옆방 비콘이 1등을 뺏어서 정말로 딸려 들어왔다. 지금 쓰는 `_seq_approach` 는
+# **가까워지는 비콘을 전부** 세우므로 성질이 다르다 — 반경이 그냥 반경이다.
+#
+# 지금 규칙으로 다시 재면(실측 4층 B1 → 계단2):
+#
+#     3.0m   19칸   B1 B4 B18 B8 B19 …
+#     4.0m   21칸   B31 추가
+#     5.0m   23칸   B30 추가
+#     6.0m   23칸   B6 추가
+#     8.0m   26칸   B3 추가
+#    10.0m   29칸   B7 이 들어온다
+#
+# **10m 는 안 된다.** B7 은 걷는 내내 한 번도 1등을 못 해서 추적기가 그 칸에서
+# 멈추는 비콘이다(`_seq_approach` 주의 참고).
+#
+# 그래도 기본값은 3.0 으로 둔다. 이 숫자는 **좁은 복도(4층)** 것이고, 넓은 홀은
+# 아래처럼 층별로 줘야 한다. 한 값으로 둘 다 맞출 수가 없다.
+# 층별 값을 정할 때는 `tests/check_radius.py` 로 그 층 DB 를 직접 재면 된다.
 BEACON_MATCH_RADIUS_M = 3.0
 
 # ── 층마다 다른 값이 필요하다 ──────────────────────────────────────
@@ -107,13 +126,29 @@ BEACON_MATCH_RADIUS_M = 3.0
 # 가운데 비콘이 사라진다. 한 값으로 둘 다 맞출 수가 없다.
 #
 # 그래서 층마다 따로 준다. DB 컬럼과 관리자웹 입력칸을 만드는 것이 맞지만
-# 그건 마이그레이션이 필요해서, 우선 환경변수로 뺀다.
+# 그건 마이그레이션이 필요해서, 우선 여기 적어둔다.
 #
-#     BEACON_MATCH_RADIUS_M=3.0
-#     BEACON_MATCH_RADIUS_BY_FLOOR="<층id>=8.0,<다른층id>=2.5"
+# ── 왜 .env 가 아니라 코드인가 ────────────────────────────────────
 #
-# **기본값은 안 건드린다.** 안 적은 층은 예전 그대로 3.0m 로 돌아서, 이 값을
-# 쓰지 않으면 아무것도 달라지지 않는다.
+# **`.env` 에 적으면 안 먹힌다.** 이 프로젝트에는 `load_dotenv` 를 부르는 곳이
+# 없다. `config.py` 의 pydantic 이 `.env` 를 읽기는 하지만 그건 거기 선언된
+# 필드(`database_url` 등)뿐이고, `os.environ` 에는 안 실린다. 아래 반경은
+# `os.environ.get` 으로 읽으므로 `.env` 에 적어봐야 조용히 무시된다.
+#
+# 그래서 값은 코드에 두고, 환경변수는 **덮어쓰는 용도로만** 남긴다
+# (`BEACON_MATCH_RADIUS_BY_FLOOR="<층id>=8.0"` — 실제 환경변수로 내보낼 때만).
+#
+# 층 id 는 이렇게 찾는다.
+#
+#     SELECT id, floor, name FROM floors ORDER BY floor;
+#     python tests/check_radius.py            ← 같은 목록이 나온다
+FLOOR_RADIUS_M: dict[str, float] = {
+    # 1층 로비. 넓은 홀이라 경로는 벽을 따라 도는데 비콘은 가운데 있다.
+    # 3m 로는 B1~B4 넷만 서고 나머지가 통째로 빠졌다.
+    "439d51eb-6634-4856-8311-726c90c9f46c": 8.0,
+}
+
+
 def _radius_default() -> float:
     try:
         return max(0.1, float(os.environ.get("BEACON_MATCH_RADIUS_M", "")
@@ -123,7 +158,8 @@ def _radius_default() -> float:
 
 
 def _radius_by_floor() -> dict[str, float]:
-    out: dict[str, float] = {}
+    """층별 반경. 코드에 적은 것이 기본이고, 환경변수가 있으면 그것이 이긴다."""
+    out: dict[str, float] = dict(FLOOR_RADIUS_M)
     for part in (os.environ.get("BEACON_MATCH_RADIUS_BY_FLOOR") or "").split(","):
         key, sep, val = part.partition("=")
         if not sep:
@@ -138,10 +174,6 @@ def _radius_by_floor() -> dict[str, float]:
 # 마스크를 푼 결과를 들고 있는다. {floor_id: (해시, 비트, 폭, 높이)}
 # 마스크 내용이 키라서, 관리자가 고치면 자동으로 다시 만든다.
 _MASK_CACHE: dict[str, tuple[str, bytes, int, int]] = {}
-
-# 만들어 둔 그래프. {floor_id: (키, Graph)}
-# 키에 마스크·축척·입구가 전부 들어가서, 무엇이 바뀌든 다시 만든다.
-_GRAPH_CACHE: dict[str, tuple[str, "Graph"]] = {}
 
 
 class DbMapSource:
@@ -215,80 +247,26 @@ class DbMapSource:
         return out
 
     def graph(self, floor_id: str) -> Graph:
-        """이동영역 마스크에서 경로 그래프를 만든다.
+        """안내에 쓸 경로 그래프. **관리자웹이 저장해둔 것만 쓴다.**
 
-        관리자웹의 경로노드 화면(`PathNodePage.tsx`)이 하는 것과 **같은 순서·같은
-        인자**로 호출한다. 다르면 관리자가 검수한 그래프와 사용자가 안내받는
-        그래프가 갈라진다.
+        노드·간선을 만드는 것은 관리자웹(`pathNodes.ts`)의 몫이다. 관리자가 화면에서
+        점을 옮기고 잘못된 건너기를 지운 뒤 저장한 결과가 곧 안내에 쓰이는 그래프다.
 
-            마스크         floor_masks 의 PNG (alpha>0 = 통행 가능)
-            입구           연결자 먼저, 그다음 랜드마크 (순서가 노드 번호를 정한다)
-            좌표           마스크 픽셀 — DB 의 900 좌표에 maskW/900 을 곱한다
-            crossingMaxPx  12m / scaleMPerPx
+        서버가 같은 계산을 따로 돌던 폴백은 없앴다. 사람이 검수하지 않은 그래프로
+        시각장애인을 안내하는 것보다 안내를 거절하는 편이 낫고, 두 벌의 생성 코드를
+        똑같이 유지하는 일은 화면과 안내가 조용히 갈라지는 원인이 된다.
 
-        결과 노드는 **900 좌표로 되돌려** 내보낸다. 비콘·랜드마크가 900 기준이라
-        같은 좌표계여야 "이 비콘에서 가장 가까운 노드"를 찾을 수 있다.
-
-        관리자웹에서 경로노드를 저장해둔 층이면(PathNodePage.tsx의 "저장"), 아래
-        자동계산을 건너뛰고 그 값을 그대로 쓴다 — 관리자가 점을 옮기거나 잘못된
-        건너기를 지운 결과가 실제 안내에도 반영되게 하려면 이렇게 해야 한다.
-        아직 아무도 저장한 적 없는 층만(신규 층 등) 아래 자동계산으로 폴백한다.
+        저장된 좌표는 마스크 픽셀 기준이라 900(`DESIGN_W`) 좌표로 되돌려 내보낸다.
+        비콘·랜드마크가 900 기준이라 같은 좌표계여야 "이 비콘에서 가장 가까운 노드"를
+        찾을 수 있다.
         """
         saved = self.db.get(FloorPathNodes, floor_id)
-        if saved and saved.nodes:
-            return self._graph_from_saved(saved)
-
-        mask, mw, mh, mask_key = self._mask_bits(floor_id)
-        f = self.db.get(Floor, floor_id)
-        scale = float(f.scale_m_per_px) if f and f.scale_m_per_px else None
-        if scale is None:
+        if saved is None or not saved.nodes:
             raise MapDataError(
-                "축척이 없어 경로 그래프를 만들 수 없습니다.\n"
-                "관리자웹의 지도 검수 화면에서 축척을 먼저 정해주세요."
+                "이 층은 경로노드가 저장되어 있지 않아 안내할 수 없습니다.\n"
+                "관리자웹의 경로노드 화면에서 그래프를 확인하고 저장해주세요."
             )
-
-        to_mask = mw / DESIGN_W
-        entrances = [
-            EntrancePoint(x=lm.x * to_mask, y=lm.y * to_mask,
-                          kind="connector" if lm.is_connector else "landmark")
-            for lm in self._entrance_order(floor_id)
-        ]
-        crossing_max_px = CROSSING_MAX_M / scale
-
-        # 노드 생성이 이 모듈에서 제일 비싸다(실측 4층 기준 0.8초). 안내 한 번에
-        # 여러 번 불리므로 결과를 들고 있는다.
-        #
-        # 키에는 **결과를 바꾸는 것 전부**가 들어가야 한다. 하나라도 빠지면
-        # 관리자가 고친 뒤에도 옛 그래프가 나가는데, 그건 화면과 안내가 갈라지는
-        # 가장 알아채기 어려운 형태다.
-        key = hashlib.sha1(repr((
-            mask_key, mw, mh, scale, crossing_max_px,
-            [(round(e.x, 6), round(e.y, 6), e.kind) for e in entrances],
-        )).encode()).hexdigest()
-        cached = _GRAPH_CACHE.get(floor_id)
-        if cached and cached[0] == key:
-            return cached[1]
-
-        built = generate_path_nodes(mask, mw, mh, entrances, crossing_max_px)
-
-        to_design = DESIGN_W / mw
-        nodes = [
-            Node(id=n.id, x=n.x * to_design, y=n.y * to_design,
-                 type=n.type, concave=n.concave, name=None)
-            for n in built.nodes
-        ]
-        by_id = {n.id: n for n in built.nodes}
-        edges = []
-        for e in built.edges:
-            a, b = by_id[e.a], by_id[e.b]
-            # 마스크 픽셀 거리 × (m/마스크px) = 실거리. scale 이 마스크 픽셀 기준이라
-            # 중간 환산 없이 바로 곱하면 된다 (PathNodePage.tsx 주석과 같은 이야기).
-            dist_m = math.hypot(a.x - b.x, a.y - b.y) * scale
-            edges.append(Edge(a=e.a, b=e.b, dist_m=dist_m, type=e.type,
-                              directed=e.directed))
-        graph = Graph(nodes=nodes, edges=edges)
-        _GRAPH_CACHE[floor_id] = (key, graph)
-        return graph
+        return self._graph_from_saved(saved)
 
     def _graph_from_saved(self, saved: FloorPathNodes) -> Graph:
         """관리자웹이 저장한 경로노드 그래프를 그대로 안내에 쓴다(자동계산 생략).
@@ -344,7 +322,15 @@ class DbMapSource:
         return scale * mw / DESIGN_W
 
     def cross_penalty_m(self, floor_id: str) -> float:
-        # 관리자웹 기본값과 맞춘다 (PathNodePage.tsx 의 DEFAULT_CROSS_PENALTY_M).
+        """건너기 간선에 얹는 가중치(m). 관리자가 경로노드 화면에서 정한 값을 따른다.
+
+        예전에는 관리자웹이 이 값을 화면 안에서만 쓰고 저장하지 않아서, 서버는 같은
+        기본값을 따로 박아두고 있었다. 관리자가 화면에서 값을 바꿔 경로를 검수해도
+        안내는 옛 값으로 나가는 상태였다. 지금은 경로노드와 함께 저장된 값을 읽는다.
+        """
+        saved = self.db.get(FloorPathNodes, floor_id)
+        if saved is not None and saved.cross_penalty_m is not None:
+            return float(saved.cross_penalty_m)
         return CROSS_PENALTY_M
 
     def beacon_match_radius_m(self, floor_id: str) -> float:

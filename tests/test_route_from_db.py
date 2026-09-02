@@ -44,6 +44,8 @@ from app.mask.models import FloorMask  # noqa: E402
 from app.nav.db_map_source import DESIGN_W, DbMapSource  # noqa: E402
 from app.nav.map_source import MapDataError  # noqa: E402
 from app.nav.route_engine import build_route, estimated_seconds  # noqa: E402
+from app.pathnode.models import FloorPathNodes  # noqa: E402
+from tests.pathnode_seed import seed_path_nodes  # noqa: E402
 from tests.seed_from_project import gray_alpha_png  # noqa: E402
 
 OK, BAD = "✓", "✗"
@@ -102,12 +104,14 @@ def main() -> int:
                         category="수직연결자" if lm.get("isConnector") else "미분류",
                         x=lm["x"] * k, y=lm["y"] * k, source_label=lm["id"]))
     db.commit()
+    # 서버는 관리자가 저장해둔 경로노드만 쓴다. 그 저장 상태를 만들어 준다.
+    seed_path_nodes(db, FLOOR_ID)
     print(f" 마스크 {w}×{h}, 비콘 {len(d['beacons'])}개, 목적지 {len(d['landmarks'])}개")
 
     src = DbMapSource(db)
 
-    # ── 그래프가 만들어지는가 ────────────────────────────────
-    print("\n── 마스크에서 그래프 만들기 ──")
+    # ── 그래프를 읽어 오는가 ────────────────────────────────
+    print("\n── 저장된 경로노드 읽기 ──")
     t = time.perf_counter()
     graph = src.graph(FLOOR_ID)
     elapsed = time.perf_counter() - t
@@ -119,10 +123,13 @@ def main() -> int:
     check(all(0 <= n.x <= DESIGN_W * 1.01 for n in graph.nodes),
           "노드가 설계도(900) 좌표계다", f"최대 x {max(n.x for n in graph.nodes):.0f}")
 
+    # 그래프 캐시는 없앴다. 마스크에서 노드를 만들던 시절에는 한 번에 0.8초가
+    # 걸려서 들고 있어야 했지만, 지금은 저장된 행을 읽어 좌표만 환산한다.
+    # 캐시가 없으면 관리자가 저장한 즉시 반영된다는 이점도 있다.
     t = time.perf_counter()
     src.graph(FLOOR_ID)
-    cached = time.perf_counter() - t
-    check(cached < elapsed / 2, "두 번째 호출은 캐시를 탄다", f"{cached:.3f}s")
+    again = time.perf_counter() - t
+    check(again < 0.1, "매번 읽어도 부담이 없다", f"{again * 1000:.0f}ms")
 
     # ── 실제 경로 ────────────────────────────────────────────
     print("\n── 경로 만들기 (비콘 → 목적지) ──")
@@ -175,14 +182,17 @@ def main() -> int:
     except MapDataError as e:
         check("축척" in str(e), "축척이 없으면 이유를 말한다", str(e).splitlines()[0])
 
-    db.query(FloorMask).filter(FloorMask.floor_id == FLOOR_ID).delete()
+    # 검수되지 않은 그래프로 안내하지 않는다. 관리자가 경로노드를 저장하지 않은 층은
+    # 억지로 만들어 안내하는 대신 무엇을 해야 하는지 말하고 거절한다.
+    db.query(FloorPathNodes).filter(FloorPathNodes.floor_id == FLOOR_ID).delete()
     db.commit()
     dms._MASK_CACHE.clear()
     try:
         src.graph(FLOOR_ID)
-        check(False, "마스크가 없으면 이유를 말한다", "예외가 안 났다")
+        check(False, "경로노드가 없으면 이유를 말한다", "예외가 안 났다")
     except MapDataError as e:
-        check("이동영역" in str(e), "마스크가 없으면 이유를 말한다", str(e).splitlines()[0])
+        check("경로노드" in str(e), "경로노드가 없으면 이유를 말한다",
+              str(e).splitlines()[0])
 
     print(f"\n{'=' * 62}")
     if fails:

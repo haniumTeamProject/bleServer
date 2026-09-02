@@ -23,6 +23,10 @@ class FloorPathNodesRequest(CamelModel):
     edges: list[PathEdgeItem]
     mask_w: int
     mask_h: int
+    # 관리자가 화면에서 정한 건너기 설정. 예전 관리자웹은 이 값을 보내지 않으므로
+    # 없어도 받아준다 — 그 경우 서버 기본값으로 안내한다.
+    cross_penalty_m: float | None = None
+    crossing_max_m: float | None = None
 
 
 class FloorPathNodesResponse(CamelModel):
@@ -31,3 +35,5 @@ class FloorPathNodesResponse(CamelModel):
     edges: list[PathEdgeItem]
     mask_w: int | None
     mask_h: int | None
+    cross_penalty_m: float | None = None
+    crossing_max_m: float | None = None

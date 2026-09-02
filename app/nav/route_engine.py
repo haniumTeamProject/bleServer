@@ -186,14 +186,28 @@ def find_node_path(graph: Graph, start_id: str, end_id: str,
             continue
         is_cross = 1 if e.type == "cross" else 0
         cost = e.dist_m + is_cross * cross_penalty_m
+
         # 남의 목적지·연결자 앞의 건너기를 지름길로 쓰지 않는다
         # (`cross_edge_usable` 참고 — 관리자웹 pathfind.ts 와 같은 규칙).
+        #
+        # 판정은 **간선이 아니라 방향마다** 한다. 건너기는 "여기서 출발해 반대편으로
+        # 건너세요"라는 안내이므로, 기준이 되는 것은 그 방향에서 발을 떼는 쪽 노드다.
+        # 예전에는 a 만 보고 간선을 통째로 버렸는데, 그 때문에 두 가지가 어긋났다.
+        #
+        #   · 역방향이 무검사로 열렸다. `directed` 가 안 붙은 건너기(손으로 고친
+        #     그래프나 컬럼이 생기기 전 저장분)는 b→a 가 그대로 살아서, b 가 남의
+        #     목적지 앞이어도 거기서 출발하는 안내가 나갔다.
+        #   · 반대로 a 가 목적지라는 이유만으로 b→a, 즉 목적지 쪽으로 건너 **들어가는**
+        #     방향까지 같이 사라졌다. 도착지로 들어가는 건너기는 막을 이유가 없다.
+        a_ok = b_ok = True
         if is_cross:
-            a_node = graph.node(e.a)
-            if a_node is not None and not cross_edge_usable(
-                    getattr(a_node, "type", None), a_node.id, start_id):
-                continue
-        adj[e.a].append((e.b, cost, e.dist_m, is_cross))
+            a_ok = cross_edge_usable(
+                getattr(graph.node(e.a), "type", None), e.a, start_id)
+            b_ok = cross_edge_usable(
+                getattr(graph.node(e.b), "type", None), e.b, start_id)
+
+        if a_ok:
+            adj[e.a].append((e.b, cost, e.dist_m, is_cross))
         # **건너기는 단방향이다.** a(입구/벽 끝) → b(맞은편) 으로만 건넌다.
         #
         # 맞은편 지점은 벽에서 떨어진 허공이라 거기서 출발할 수가 없다. 벽을
@@ -203,7 +217,7 @@ def find_node_path(graph: Graph, start_id: str, end_id: str,
         # pathfind.ts 는 `if (!e.directed)` 일 때만 역방향을 열고, 관리자웹은
         # cross 를 항상 directed 로 만든다(pathNodes.ts). 화면에 그려진 경로와
         # 안내에 쓰는 경로가 갈라지면 검수 자체가 의미를 잃는다.
-        if not e.directed:
+        if not e.directed and b_ok:
             adj[e.b].append((e.a, cost, e.dist_m, is_cross))
 
     g = {start_id: 0.0}
@@ -340,10 +354,14 @@ def _seq_approach(graph: Graph, node_ids: list[str], beacons: list[BeaconInfo],
     # 전체 최소 하나만 잡으면 왕복 경로에서 같은 비콘 옆을 두 번 지나도 한 칸이
     # 된다. 두 번 지나는 것은 실제로 일어나는 일이라 두 번 세야 한다.
     picks: list[tuple[int, float, str, str]] = []     # (표본 순번, 거리, 비콘, 노드)
+    missed: list[tuple[float, str]] = []              # 반경 밖이라 빠진 것 (최근접, 비콘)
     for b in beacons:
         run: tuple[int, float, str] | None = None     # 이번 통과의 최근접
+        best = float("inf")                           # 반경과 무관하게 가장 가까웠던 거리
         for i, ((x, y), nid) in enumerate(samples):
             d = math.hypot(x - b.x, y - b.y) * meters_per_px
+            if d < best:
+                best = d
             if d <= radius_m:
                 if run is None or d < run[1]:
                     run = (i, d, nid)
@@ -352,11 +370,37 @@ def _seq_approach(graph: Graph, node_ids: list[str], beacons: list[BeaconInfo],
                 run = None                            # 반경 밖으로 나갔다 — 한 번 지나감
         if run is not None:
             picks.append((run[0], run[1], b.id, run[2]))
+        elif not any(p[2] == b.id for p in picks):
+            missed.append((best, b.id))
 
     # 최근접점 순서 = 지나가는 순서. 같은 표본이면 가까운 쪽을 먼저 만난 것으로 본다.
     picks.sort(key=lambda p: (p[0], p[1]))
+
+    # **바로 옆에 같은 비콘이 오면 접는다.**
+    #
+    # 반경 언저리를 스치는 비콘은 한 번 지나가는데도 통과 구간이 둘로 쪼개진다
+    # (들어왔다 잠깐 나갔다 다시 들어옴). 그러면 경로에 `B12 → B12` 가 생긴다.
+    #
+    # 이건 그냥 보기 나쁜 정도가 아니라 **안내가 그 칸에서 멈춘다.** 추적기는
+    # "다음 칸 비콘이 지금 것보다 세졌나"로 넘어가는데, 둘이 같은 비콘이면
+    # 영원히 성립하지 않는다.
+    #
+    # 사이에 다른 비콘이 낀 재방문(`B17 → B15 → B17`)은 그대로 둔다. 그건 실제로
+    # 두 번 지나가는 것이고, 접으면 왕복 경로의 뒷부분이 통째로 사라진다.
+    folded: list[tuple[int, float, str, str]] = []
+    for p in picks:
+        if folded and folded[-1][2] == p[2]:
+            continue
+        folded.append(p)
+
+    if missed:
+        missed.sort()
+        near = ", ".join(f"{bid} {d:.1f}m" for d, bid in missed[:6])
+        print(f"[경로] 반경({radius_m:.1f}m) 밖이라 뺀 비콘 {len(missed)}개 — {near}"
+              + (" …" if len(missed) > 6 else ""))
+
     return [BeaconStep(seq=n + 1, beacon_id=bid, node_id=nid)
-            for n, (_i, _d, bid, nid) in enumerate(picks)]
+            for n, (_i, _d, bid, nid) in enumerate(folded)]
 
 
 def to_beacon_sequence(graph: Graph, node_ids: list[str], beacons: list[BeaconInfo],
@@ -446,6 +490,26 @@ class RouteResult:
 WALK_SPEED_MPS = float(__import__("os").environ.get("NAV_WALK_SPEED", "0.7"))
 
 
+def _log_crossings(graph: Graph, node_ids: list[str], start_id: str) -> None:
+    """채택된 건너기를 한 줄로 남긴다.
+
+    "엉뚱한 데서 건넌다"는 신고가 들어오면 확인할 것이 세 가지다 — 어느 간선을
+    탔는지, 출발 쪽 노드의 종류가 무엇인지, 그 종류가 출발 제한에 걸리는 종류인데도
+    통과했다면 그 노드가 출발 노드로 잡혔는지. 셋을 한꺼번에 찍는다.
+    """
+    used = []
+    for a_id, b_id in zip(node_ids, node_ids[1:]):
+        e = next((x for x in graph.edges
+                  if x.type == "cross" and {x.a, x.b} == {a_id, b_id}), None)
+        if e is None:
+            continue
+        kind = getattr(graph.node(a_id), "type", None) or "?"
+        mark = " ←출발노드" if a_id == start_id else ""
+        used.append(f"{a_id}({kind}){mark} → {b_id} {e.dist_m:.1f}m")
+    if used:
+        print(f"[경로] 건너기 {len(used)}회 — " + " | ".join(used))
+
+
 def build_route(source: MapSource, floor_id: str, *, from_beacon_id: str,
                 to_landmark_id: str) -> RouteResult:
     """출발 비콘에서 목적지 랜드마크까지의 비콘 순서를 만든다.
@@ -484,6 +548,8 @@ def build_route(source: MapSource, floor_id: str, *, from_beacon_id: str,
                            source.cross_penalty_m(floor_id))
     if found is None:
         raise MapDataError(f"{origin.id} 에서 {dest.name} 까지 갈 수 있는 길이 없습니다.")
+
+    _log_crossings(graph, found.node_ids, start_node.id)
 
     steps = to_beacon_sequence(graph, found.node_ids, beacons,
                                source.beacon_match_radius_m(floor_id), mpp)

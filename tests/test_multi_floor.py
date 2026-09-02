@@ -48,6 +48,7 @@ from app.nav.db_map_source import DESIGN_W  # noqa: E402
 from app.nav.map_source import MapDataError  # noqa: E402
 from app.ws.navigation_ws import FLOOR_SWITCH_DWELL_MS  # noqa: E402
 from app.ws.rssi_filter import RssiFilterPipeline  # noqa: E402
+from tests.pathnode_seed import seed_path_nodes  # noqa: E402
 from tests.seed_from_project import gray_alpha_png  # noqa: E402
 
 OK, BAD = "✓", "✗"
@@ -95,7 +96,6 @@ def main() -> int:  # noqa: C901
     import app.ws.navigation as navmod
     navmod.SessionLocal = S
     dms._MASK_CACHE.clear()
-    dms._GRAPH_CACHE.clear()
 
     d = json.loads(project.read_text(encoding="utf-8"))
     w, h = d["workW"], d["workH"]
@@ -141,6 +141,9 @@ def main() -> int:  # noqa: C901
     db.add(ConnectorPosition(connector_id="cn-solo", floor_id=F1,
                              x=near["x"] * k, y=near["y"] * k))
     db.commit()
+    # 서버는 저장된 경로노드만 쓴다. 관리자가 화면에서 저장해둔 상태를 만들어 준다.
+    for fid in (F1, F3, F4):
+        seed_path_nodes(db, fid)
     db.close()
 
     from app.nav import legs as legs_mod

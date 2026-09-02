@@ -43,6 +43,7 @@ from app.floorplan.models import Floorplan  # noqa: E402
 from app.landmark.models import Landmark  # noqa: E402
 from app.mask.models import FloorMask  # noqa: E402
 from app.nav.db_map_source import DESIGN_W  # noqa: E402
+from tests.pathnode_seed import seed_path_nodes  # noqa: E402
 from tests.seed_from_project import gray_alpha_png  # noqa: E402
 
 OK, BAD = "✓", "✗"
@@ -106,9 +107,10 @@ def main() -> int:
                         category="미분류", x=lm["x"] * k, y=lm["y"] * k,
                         source_label=lm["id"]))
     db.commit()
+    # 서버는 저장된 경로노드만 쓴다. 관리자가 저장해둔 상태를 만들어 준다.
+    seed_path_nodes(db, FLOOR_ID)
     db.close()
     dms._MASK_CACHE.clear()
-    dms._GRAPH_CACHE.clear()
 
     # ── 폰이 비콘을 올리고 있는 상황을 만든다 ────────────────
     import app.ws.handler as handler
