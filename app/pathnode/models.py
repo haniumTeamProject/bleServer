@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, Float, Integer, String
+from sqlalchemy import JSON, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -13,7 +13,8 @@ from app.database import Base
 class FloorPathNodes(Base):
     __tablename__ = "floor_path_nodes"
 
-    floor_id: Mapped[str] = mapped_column(String, primary_key=True)
+    floor_id: Mapped[str] = mapped_column(
+        String, ForeignKey("floors.id", ondelete="CASCADE"), primary_key=True)
     mask_w: Mapped[int | None] = mapped_column(Integer, nullable=True)
     mask_h: Mapped[int | None] = mapped_column(Integer, nullable=True)
     nodes: Mapped[list | None] = mapped_column(JSON, nullable=True)

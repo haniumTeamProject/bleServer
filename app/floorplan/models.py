@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, String, Text
+from sqlalchemy import Boolean, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -8,7 +8,8 @@ from app.database import Base
 class Floorplan(Base):
     __tablename__ = "floorplans"
 
-    floor_id: Mapped[str] = mapped_column(String, primary_key=True)
+    floor_id: Mapped[str] = mapped_column(
+        String, ForeignKey("floors.id", ondelete="CASCADE"), primary_key=True)
 
     # 업로드된 이미지 data URL. 매우 길 수 있어 TEXT로 저장
     image_url: Mapped[str | None] = mapped_column(Text, nullable=True)

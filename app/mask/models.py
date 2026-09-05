@@ -1,4 +1,4 @@
-from sqlalchemy import Integer, String, Text
+from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -8,7 +8,8 @@ from app.database import Base
 class FloorMask(Base):
     __tablename__ = "floor_masks"
 
-    floor_id: Mapped[str] = mapped_column(String, primary_key=True)
+    floor_id: Mapped[str] = mapped_column(
+        String, ForeignKey("floors.id", ondelete="CASCADE"), primary_key=True)
     width: Mapped[int | None] = mapped_column(Integer, nullable=True)
     height: Mapped[int | None] = mapped_column(Integer, nullable=True)
 

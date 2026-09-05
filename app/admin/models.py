@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, String
+from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -32,7 +32,8 @@ class Admin(Base):
     official_doc_url: Mapped[str | None] = mapped_column(String, nullable=True)
 
     # 승인 감사 로그
-    approved_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    approved_by: Mapped[str | None] = mapped_column(
+        String, ForeignKey("admins.id", ondelete="SET NULL"), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

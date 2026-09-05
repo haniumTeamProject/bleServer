@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import ARRAY, Float, Integer, String
+from sqlalchemy import ARRAY, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -10,7 +10,8 @@ class Connector(Base):
     __tablename__ = "connectors"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    building_id: Mapped[str] = mapped_column(String, nullable=False)
+    building_id: Mapped[str] = mapped_column(
+        String, ForeignKey("buildings.id", ondelete="CASCADE"), nullable=False)
     name: Mapped[str | None] = mapped_column(String, nullable=True)
 
     # elevator | stairs
@@ -35,7 +36,9 @@ class ConnectorPosition(Base):
 
     __tablename__ = "connector_positions"
 
-    connector_id: Mapped[str] = mapped_column(String, primary_key=True)
-    floor_id: Mapped[str] = mapped_column(String, primary_key=True)
+    connector_id: Mapped[str] = mapped_column(
+        String, ForeignKey("connectors.id", ondelete="CASCADE"), primary_key=True)
+    floor_id: Mapped[str] = mapped_column(
+        String, ForeignKey("floors.id", ondelete="CASCADE"), primary_key=True)
     x: Mapped[float] = mapped_column(Float, nullable=False)
     y: Mapped[float] = mapped_column(Float, nullable=False)
